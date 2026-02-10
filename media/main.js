@@ -5,6 +5,7 @@
   let currentState = null;
   let draggedTodoId = null;
   let draggedGroupId = null;
+  let previousArchivedCount = 0;
 
   // ---- MESSAGE HANDLING ----
 
@@ -16,7 +17,7 @@
         render(currentState);
         break;
       case 'focusAddInput':
-        document.getElementById('todo-input')?.focus();
+        showInlineAddInput('', document.getElementById('ungrouped-list'));
         break;
     }
   });
@@ -29,24 +30,56 @@
   function render(state) {
     renderUngrouped(state.activeTodos.filter(t => t.groupId === ''));
     renderGroups(state.groups, state.activeTodos);
-    renderArchive(state.archivedTodos);
-    renderGroupSelect(state.groups);
+    renderArchive(state.archivedTodos, state.groups);
+  }
+
+  function createInlineAddButton(groupId, listEl) {
+    const btn = document.createElement('button');
+    btn.className = 'inline-add-btn';
+    btn.textContent = '+ Add TODO';
+    btn.addEventListener('click', () => {
+      btn.style.display = 'none';
+      showInlineAddInput(groupId, listEl, btn);
+    });
+    return btn;
   }
 
   function renderUngrouped(todos) {
-    const list = document.getElementById('ungrouped-list');
-    list.innerHTML = '';
+    const container = document.getElementById('ungrouped-container');
+    container.innerHTML = '';
+
+    const section = document.createElement('div');
+    section.className = 'group-section';
+
+    const header = document.createElement('div');
+    header.className = 'group-header';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'group-name';
+    nameSpan.textContent = 'TODOs';
+
+    const countSpan = document.createElement('span');
+    countSpan.className = 'group-count';
+    countSpan.textContent = `(${todos.length})`;
+
+    header.appendChild(nameSpan);
+    header.appendChild(countSpan);
+    section.appendChild(header);
+
+    const list = document.createElement('div');
+    list.id = 'ungrouped-list';
+    list.className = 'group-todo-list todo-list';
+    list.dataset.groupId = '';
     const sorted = todos.sort((a, b) => a.sortOrder - b.sortOrder);
     sorted.forEach(todo => {
       list.appendChild(createTodoElement(todo));
     });
-    if (sorted.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'empty-message';
-      empty.textContent = 'No TODOs yet. Add one above!';
-      list.appendChild(empty);
-    }
     setupDropZone(list);
+    section.appendChild(list);
+
+    list.appendChild(createInlineAddButton('', list));
+
+    container.appendChild(section);
   }
 
   function renderGroups(groups, allTodos) {
@@ -155,13 +188,8 @@
       todos.forEach(todo => {
         list.appendChild(createTodoElement(todo));
       });
-      if (todos.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'empty-message';
-        empty.textContent = 'Empty group';
-        list.appendChild(empty);
-      }
       setupDropZone(list);
+      list.appendChild(createInlineAddButton(group.id, list));
       section.appendChild(list);
     }
 
@@ -320,10 +348,16 @@
 
   // ---- ARCHIVE ----
 
-  function renderArchive(archivedTodos) {
+  function renderArchive(archivedTodos, groups) {
     document.getElementById('archive-count').textContent = archivedTodos.length;
     const list = document.getElementById('archive-list');
     list.innerHTML = '';
+
+    // Auto-expand when a new item was just completed
+    if (archivedTodos.length > previousArchivedCount) {
+      document.getElementById('archive-section').open = true;
+    }
+    previousArchivedCount = archivedTodos.length;
 
     if (archivedTodos.length === 0) {
       const empty = document.createElement('div');
@@ -333,40 +367,77 @@
       return;
     }
 
+    // Build group name lookup
+    const groupNameMap = {};
+    groups.forEach(g => { groupNameMap[g.id] = g.name; });
+
+    // Group archived todos by their original groupId
+    const grouped = {};
     archivedTodos.forEach(todo => {
-      const el = document.createElement('div');
-      el.className = 'archive-item';
+      const gid = todo.groupId || '';
+      if (!grouped[gid]) { grouped[gid] = []; }
+      grouped[gid].push(todo);
+    });
 
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.className = 'todo-checkbox';
-      checkbox.checked = true;
-      checkbox.title = 'Uncheck to restore';
-      checkbox.addEventListener('change', () => {
-        vscode.postMessage({ type: 'restoreTodo', id: todo.id });
+    // Render order: ungrouped ("TODOs") first, then groups in their sort order
+    const orderedGroupIds = [''];
+    groups.forEach(g => {
+      if (grouped[g.id]) { orderedGroupIds.push(g.id); }
+    });
+    // Include any orphaned group IDs (group was deleted after todo was completed)
+    Object.keys(grouped).forEach(gid => {
+      if (!orderedGroupIds.includes(gid)) { orderedGroupIds.push(gid); }
+    });
+
+    orderedGroupIds.forEach(gid => {
+      const todos = grouped[gid];
+      if (!todos) { return; }
+
+      const groupLabel = gid === '' ? 'TODOs' : (groupNameMap[gid] || 'Deleted Group');
+
+      // Only show group header if there are multiple groups with archived items
+      if (orderedGroupIds.filter(id => grouped[id]).length > 1) {
+        const header = document.createElement('div');
+        header.className = 'archive-group-header';
+        header.textContent = groupLabel;
+        list.appendChild(header);
+      }
+
+      todos.forEach(todo => {
+        const el = document.createElement('div');
+        el.className = 'archive-item';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'todo-checkbox';
+        checkbox.checked = true;
+        checkbox.title = 'Uncheck to restore';
+        checkbox.addEventListener('change', () => {
+          vscode.postMessage({ type: 'restoreTodo', id: todo.id });
+        });
+
+        const textSpan = document.createElement('span');
+        textSpan.className = 'archive-text';
+        textSpan.textContent = todo.text;
+
+        const ageSpan = document.createElement('span');
+        ageSpan.className = 'archive-age';
+        ageSpan.textContent = formatAge(todo.completedAt);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'archive-action-btn';
+        deleteBtn.title = 'Delete permanently';
+        deleteBtn.innerHTML = '&times;';
+        deleteBtn.addEventListener('click', () => {
+          vscode.postMessage({ type: 'deleteTodo', id: todo.id });
+        });
+
+        el.appendChild(checkbox);
+        el.appendChild(textSpan);
+        el.appendChild(ageSpan);
+        el.appendChild(deleteBtn);
+        list.appendChild(el);
       });
-
-      const textSpan = document.createElement('span');
-      textSpan.className = 'archive-text';
-      textSpan.textContent = todo.text;
-
-      const ageSpan = document.createElement('span');
-      ageSpan.className = 'archive-age';
-      ageSpan.textContent = formatAge(todo.completedAt);
-
-      const deleteBtn = document.createElement('button');
-      deleteBtn.className = 'archive-action-btn';
-      deleteBtn.title = 'Delete permanently';
-      deleteBtn.innerHTML = '&times;';
-      deleteBtn.addEventListener('click', () => {
-        vscode.postMessage({ type: 'deleteTodo', id: todo.id });
-      });
-
-      el.appendChild(checkbox);
-      el.appendChild(textSpan);
-      el.appendChild(ageSpan);
-      el.appendChild(deleteBtn);
-      list.appendChild(el);
     });
   }
 
@@ -381,46 +452,44 @@
     return `${days} days ago`;
   }
 
-  // ---- GROUP SELECT ----
+  // ---- INLINE ADD ----
 
-  function renderGroupSelect(groups) {
-    const select = document.getElementById('group-select');
-    const currentValue = select.value;
-    select.innerHTML = '';
+  function showInlineAddInput(groupId, listEl, addBtn) {
+    // If already showing an inline input in this list, just focus it
+    const existing = listEl.querySelector('.todo-add-inline');
+    if (existing) { existing.focus(); return; }
 
-    const defaultOpt = document.createElement('option');
-    defaultOpt.value = '';
-    defaultOpt.textContent = 'Ungrouped';
-    select.appendChild(defaultOpt);
+    // Hide the add button while input is showing
+    if (addBtn) { addBtn.style.display = 'none'; }
 
-    groups.forEach(g => {
-      const opt = document.createElement('option');
-      opt.value = g.id;
-      opt.textContent = g.name;
-      select.appendChild(opt);
-    });
+    // Remove empty messages while adding
+    listEl.querySelectorAll('.empty-message').forEach(el => el.remove());
 
-    // Restore previous selection if still valid
-    if ([...select.options].some(o => o.value === currentValue)) {
-      select.value = currentValue;
-    }
-  }
-
-  // ---- ADD TODO ----
-
-  document.getElementById('add-btn').addEventListener('click', addTodo);
-  document.getElementById('todo-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { addTodo(); }
-  });
-
-  function addTodo() {
-    const input = document.getElementById('todo-input');
-    const select = document.getElementById('group-select');
-    const text = input.value.trim();
-    if (!text) { return; }
-    vscode.postMessage({ type: 'addTodo', text, groupId: select.value });
-    input.value = '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'todo-add-inline';
+    input.placeholder = 'Add a TODO...';
+    listEl.appendChild(input);
     input.focus();
+
+    let committed = false;
+    const commit = () => {
+      if (committed) { return; }
+      committed = true;
+      const text = input.value.trim();
+      if (text) {
+        vscode.postMessage({ type: 'addTodo', text, groupId });
+      } else {
+        input.remove();
+        if (addBtn) { addBtn.style.display = ''; }
+      }
+    };
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { commit(); }
+      if (ev.key === 'Escape') { committed = true; input.remove(); if (addBtn) { addBtn.style.display = ''; } }
+    });
   }
 
   // ---- ADD GROUP ----

@@ -132,27 +132,16 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div id="app">
-    <div id="add-section">
-      <div id="add-row">
-        <input type="text" id="todo-input" placeholder="What needs to be done?" />
-        <button id="add-btn" title="Add TODO"></button>
-      </div>
-      <div id="add-options">
-        <select id="group-select"><option value="">Ungrouped</option></select>
-      </div>
-    </div>
-    <div id="ungrouped-container">
-      <div id="ungrouped-list" class="todo-list" data-group-id=""></div>
-    </div>
+    <div id="ungrouped-container"></div>
     <div id="groups-container"></div>
-    <details id="archive-section">
-      <summary><span class="archive-chevron">&#9654;</span><span class="archive-label">Completed</span> <span id="archive-count" class="archive-badge">0</span></summary>
-      <div id="archive-list"></div>
-    </details>
     <div id="group-management">
       <input type="text" id="group-input" placeholder="New group name..." />
       <button id="add-group-btn">+ Group</button>
     </div>
+    <details id="archive-section">
+      <summary><span class="archive-chevron">&#9654;</span><span class="archive-label">Completed</span> <span id="archive-count" class="archive-badge">0</span></summary>
+      <div id="archive-list"></div>
+    </details>
   </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

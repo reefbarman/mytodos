@@ -2,13 +2,25 @@
   "name": "mytodos",
   "displayName": "My TODOs",
   "description": "Workspace-scoped TODO list with groups and archive",
-  "version": "0.3.2",
-  "publisher": "local",
+  "version": "0.8.1",
+  "publisher": "tristancartledge",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reefbarman/mytodos"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Other"
+  ],
+  "keywords": [
+    "todo",
+    "task",
+    "productivity",
+    "mcp",
+    "claude"
   ],
   "activationEvents": [],
   "main": "./out/extension.js",

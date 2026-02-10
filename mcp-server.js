@@ -55,7 +55,16 @@ function findTodo(todos, { id, text_match }) {
   return undefined;
 }
 
-function formatTodos(todos, groups) {
+function formatTodos(todos, groups, { inlineGroup = false } = {}) {
+  if (inlineGroup) {
+    return todos.map(todo => {
+      const groupName = todo.groupId
+        ? (groups.find(g => g.id === todo.groupId)?.name || 'Unknown')
+        : null;
+      const groupTag = groupName ? ` [${groupName}]` : '';
+      return `  - ${todo.text}${groupTag} (id: ${todo.id})`;
+    }).join('\n');
+  }
   const grouped = {};
   for (const todo of todos) {
     const groupName = todo.groupId
@@ -127,101 +136,160 @@ server.tool(
     if (todos.length === 0) {
       return { content: [{ type: 'text', text: 'No completed TODOs.' }] };
     }
-    return { content: [{ type: 'text', text: formatTodos(todos, state.groups) }] };
+    return { content: [{ type: 'text', text: formatTodos(todos, state.groups, { inlineGroup: true }) }] };
   }
 );
 
+const todoRef = z.object({
+  text_match: z.string().optional().describe('Text to match (case-insensitive substring)'),
+  id: z.string().optional().describe('Exact TODO id (preferred over text_match)'),
+});
+
 server.tool(
   'add_todo',
-  'Add a new TODO item.',
+  'Add one or more TODO items.',
   {
-    text: z.string().describe('The TODO text'),
-    group_name: z.string().optional().describe('Group name to add to (defaults to ungrouped)'),
+    items: z.array(z.object({
+      text: z.string().describe('The TODO text'),
+      group_name: z.string().optional().describe('Group name (defaults to ungrouped)'),
+    })).min(1).describe('TODOs to add'),
   },
-  async ({ text, group_name }) => {
+  async ({ items }) => {
     const state = readState();
-    let groupId = '';
-    if (group_name) {
-      const group = state.groups.find(g => g.name.toLowerCase() === group_name.toLowerCase());
-      if (group) {
+    const results = [];
+    for (const item of items) {
+      let groupId = '';
+      if (item.group_name) {
+        const group = state.groups.find(g => g.name.toLowerCase() === item.group_name.toLowerCase());
+        if (!group) { results.push(`FAIL: Group "${item.group_name}" not found`); continue; }
         groupId = group.id;
-      } else {
-        return { content: [{ type: 'text', text: `Group "${group_name}" not found. Use list_groups to see available groups, or add_group to create one.` }], isError: true };
       }
+      const todosInGroup = state.todos.filter(t => t.groupId === groupId && !t.done);
+      state.todos.push({ id: generateId(), text: item.text, done: false, createdAt: Date.now(), groupId, sortOrder: todosInGroup.length });
+      const name = groupId ? state.groups.find(g => g.id === groupId)?.name : 'Ungrouped';
+      results.push(`Added: "${item.text}" (${name})`);
     }
-    const todosInGroup = state.todos.filter(t => t.groupId === groupId && !t.done);
-    state.todos.push({
-      id: generateId(),
-      text,
-      done: false,
-      createdAt: Date.now(),
-      groupId,
-      sortOrder: todosInGroup.length,
-    });
     writeState(state);
-    const name = groupId ? state.groups.find(g => g.id === groupId)?.name : 'Ungrouped';
-    return { content: [{ type: 'text', text: `Added TODO: "${text}" (${name})` }] };
+    return { content: [{ type: 'text', text: results.join('\n') }] };
   }
 );
 
 server.tool(
   'complete_todo',
-  'Mark a TODO as completed. Matches by text (case-insensitive substring match).',
+  'Mark one or more TODOs as completed. Match by id (preferred) or text.',
   {
-    text_match: z.string().optional().describe('Text to match against TODO items'),
-    id: z.string().optional().describe('Exact TODO id (preferred over text_match)'),
+    items: z.array(todoRef).min(1).describe('TODOs to complete'),
   },
-  async ({ text_match, id }) => {
+  async ({ items }) => {
     const state = readState();
-    const todo = findTodo(state.todos.filter(t => !t.done), { id, text_match });
-    if (!todo) {
-      return { content: [{ type: 'text', text: `No active TODO found matching "${id || text_match}".` }], isError: true };
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(state.todos.filter(t => !t.done), item);
+      if (!todo) { results.push(`FAIL: No active TODO matching "${item.id || item.text_match}"`); continue; }
+      todo.done = true;
+      todo.completedAt = Date.now();
+      results.push(`Completed: "${todo.text}"`);
     }
-    todo.done = true;
-    todo.completedAt = Date.now();
     writeState(state);
-    return { content: [{ type: 'text', text: `Completed: "${todo.text}"` }] };
+    return { content: [{ type: 'text', text: results.join('\n') }] };
   }
 );
 
 server.tool(
   'uncomplete_todo',
-  'Restore a completed TODO back to active. Matches by text (case-insensitive substring match).',
+  'Restore one or more completed TODOs back to active. Match by id (preferred) or text.',
   {
-    text_match: z.string().optional().describe('Text to match against completed TODO items'),
-    id: z.string().optional().describe('Exact TODO id (preferred over text_match)'),
+    items: z.array(todoRef).min(1).describe('TODOs to restore'),
   },
-  async ({ text_match, id }) => {
+  async ({ items }) => {
     const state = readState();
-    const todo = findTodo(state.todos.filter(t => t.done), { id, text_match });
-    if (!todo) {
-      return { content: [{ type: 'text', text: `No completed TODO found matching "${id || text_match}".` }], isError: true };
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(state.todos.filter(t => t.done), item);
+      if (!todo) { results.push(`FAIL: No completed TODO matching "${item.id || item.text_match}"`); continue; }
+      todo.done = false;
+      todo.completedAt = undefined;
+      const todosInGroup = state.todos.filter(t => t.groupId === todo.groupId && !t.done && t.id !== todo.id);
+      todo.sortOrder = todosInGroup.length;
+      results.push(`Restored: "${todo.text}"`);
     }
-    todo.done = false;
-    todo.completedAt = undefined;
-    const todosInGroup = state.todos.filter(t => t.groupId === todo.groupId && !t.done && t.id !== todo.id);
-    todo.sortOrder = todosInGroup.length;
     writeState(state);
-    return { content: [{ type: 'text', text: `Restored: "${todo.text}"` }] };
+    return { content: [{ type: 'text', text: results.join('\n') }] };
   }
 );
 
 server.tool(
   'delete_todo',
-  'Permanently delete a TODO item. Matches by text (case-insensitive substring match).',
+  'Permanently delete one or more TODO items. Match by id (preferred) or text.',
   {
-    text_match: z.string().optional().describe('Text to match against TODO items'),
-    id: z.string().optional().describe('Exact TODO id (preferred over text_match)'),
+    items: z.array(todoRef).min(1).describe('TODOs to delete'),
   },
-  async ({ text_match, id }) => {
+  async ({ items }) => {
     const state = readState();
-    const todo = findTodo(state.todos, { id, text_match });
-    if (!todo) {
-      return { content: [{ type: 'text', text: `No TODO found matching "${id || text_match}".` }], isError: true };
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(state.todos, item);
+      if (!todo) { results.push(`FAIL: No TODO matching "${item.id || item.text_match}"`); continue; }
+      state.todos = state.todos.filter(t => t.id !== todo.id);
+      results.push(`Deleted: "${todo.text}"`);
     }
-    state.todos = state.todos.filter(t => t.id !== todo.id);
     writeState(state);
-    return { content: [{ type: 'text', text: `Deleted: "${todo.text}"` }] };
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+server.tool(
+  'edit_todo',
+  'Edit the text of one or more TODOs. Match by id (preferred) or text.',
+  {
+    items: z.array(todoRef.extend({
+      new_text: z.string().describe('The new text for the TODO'),
+    })).min(1).describe('TODOs to edit'),
+  },
+  async ({ items }) => {
+    const state = readState();
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(state.todos, item);
+      if (!todo) { results.push(`FAIL: No TODO matching "${item.id || item.text_match}"`); continue; }
+      const oldText = todo.text;
+      todo.text = item.new_text;
+      results.push(`Edited: "${oldText}" → "${item.new_text}"`);
+    }
+    writeState(state);
+    return { content: [{ type: 'text', text: results.join('\n') }] };
+  }
+);
+
+server.tool(
+  'move_todo',
+  'Move one or more TODOs to a different group. Match by id (preferred) or text.',
+  {
+    items: z.array(todoRef.extend({
+      group_name: z.string().optional().describe('Target group name (omit to move to ungrouped)'),
+    })).min(1).describe('TODOs to move'),
+  },
+  async ({ items }) => {
+    const state = readState();
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(state.todos, item);
+      if (!todo) { results.push(`FAIL: No TODO matching "${item.id || item.text_match}"`); continue; }
+      let newGroupId = '';
+      let targetName = 'Ungrouped';
+      if (item.group_name) {
+        const group = state.groups.find(g => g.name.toLowerCase() === item.group_name.toLowerCase());
+        if (!group) { results.push(`FAIL: Group "${item.group_name}" not found`); continue; }
+        newGroupId = group.id;
+        targetName = group.name;
+      }
+      const todosInTarget = state.todos.filter(t => t.groupId === newGroupId && !t.done && t.id !== todo.id);
+      todo.groupId = newGroupId;
+      todo.sortOrder = todosInTarget.length;
+      results.push(`Moved: "${todo.text}" → ${targetName}`);
+    }
+    writeState(state);
+    return { content: [{ type: 'text', text: results.join('\n') }] };
   }
 );
 
@@ -253,67 +321,9 @@ server.tool(
     if (exists) {
       return { content: [{ type: 'text', text: `Group "${name}" already exists.` }], isError: true };
     }
-    state.groups.push({
-      id: generateId(),
-      name,
-      sortOrder: state.groups.length,
-      collapsed: false,
-    });
+    state.groups.push({ id: generateId(), name, sortOrder: state.groups.length, collapsed: false });
     writeState(state);
     return { content: [{ type: 'text', text: `Created group: "${name}"` }] };
-  }
-);
-
-server.tool(
-  'edit_todo',
-  'Edit a TODO item\'s text. Find by id (preferred) or text match.',
-  {
-    text_match: z.string().optional().describe('Text to match against TODO items'),
-    id: z.string().optional().describe('Exact TODO id (preferred over text_match)'),
-    new_text: z.string().describe('The new text for the TODO'),
-  },
-  async ({ text_match, id, new_text }) => {
-    const state = readState();
-    const todo = findTodo(state.todos, { id, text_match });
-    if (!todo) {
-      return { content: [{ type: 'text', text: `No TODO found matching "${id || text_match}".` }], isError: true };
-    }
-    const oldText = todo.text;
-    todo.text = new_text;
-    writeState(state);
-    return { content: [{ type: 'text', text: `Renamed: "${oldText}" → "${new_text}"` }] };
-  }
-);
-
-server.tool(
-  'move_todo',
-  'Move a TODO to a different group. Find by id (preferred) or text match.',
-  {
-    text_match: z.string().optional().describe('Text to match against TODO items'),
-    id: z.string().optional().describe('Exact TODO id (preferred over text_match)'),
-    group_name: z.string().optional().describe('Target group name (omit to move to ungrouped)'),
-  },
-  async ({ text_match, id, group_name }) => {
-    const state = readState();
-    const todo = findTodo(state.todos, { id, text_match });
-    if (!todo) {
-      return { content: [{ type: 'text', text: `No TODO found matching "${id || text_match}".` }], isError: true };
-    }
-    let newGroupId = '';
-    let targetName = 'Ungrouped';
-    if (group_name) {
-      const group = state.groups.find(g => g.name.toLowerCase() === group_name.toLowerCase());
-      if (!group) {
-        return { content: [{ type: 'text', text: `Group "${group_name}" not found.` }], isError: true };
-      }
-      newGroupId = group.id;
-      targetName = group.name;
-    }
-    const todosInTarget = state.todos.filter(t => t.groupId === newGroupId && !t.done && t.id !== todo.id);
-    todo.groupId = newGroupId;
-    todo.sortOrder = todosInTarget.length;
-    writeState(state);
-    return { content: [{ type: 'text', text: `Moved "${todo.text}" → ${targetName}` }] };
   }
 );
 
@@ -343,9 +353,7 @@ server.tool(
 server.tool(
   'delete_group',
   'Delete a TODO group. TODOs in the group are moved to ungrouped.',
-  {
-    name: z.string().describe('Group name to delete'),
-  },
+  { name: z.string().describe('Group name to delete') },
   async ({ name }) => {
     const state = readState();
     const group = state.groups.find(g => g.name.toLowerCase() === name.toLowerCase());
@@ -353,9 +361,7 @@ server.tool(
       return { content: [{ type: 'text', text: `Group "${name}" not found.` }], isError: true };
     }
     const affected = state.todos.filter(t => t.groupId === group.id);
-    for (const todo of affected) {
-      todo.groupId = '';
-    }
+    for (const todo of affected) { todo.groupId = ''; }
     state.groups = state.groups.filter(g => g.id !== group.id);
     writeState(state);
     const msg = affected.length > 0
