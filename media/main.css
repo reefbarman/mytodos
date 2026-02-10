@@ -1,0 +1,382 @@
+body {
+  padding: 0 12px 16px;
+}
+
+/* ---- Shared sizing ---- */
+/* All inputs, selects, and inline buttons share the same 26px height from vscode.css */
+
+/* ---- Add Section ---- */
+#add-section {
+  padding: 10px 0 8px;
+  position: sticky;
+  top: 0;
+  background-color: var(--vscode-sideBar-background);
+  z-index: 10;
+}
+
+#add-row {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+#add-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  border-radius: 3px 0 0 3px;
+  border-right: none;
+}
+
+#add-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border-radius: 0 3px 3px 0;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#add-btn::after {
+  content: '+';
+}
+
+#add-btn:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+#add-options {
+  margin-top: 4px;
+}
+
+#add-options select {
+  width: 100%;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+#add-options select:focus {
+  opacity: 1;
+}
+
+/* ---- TODO Items ---- */
+.todo-list {
+  min-height: 4px;
+  padding: 2px 0;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  gap: 8px;
+  border-radius: 4px;
+  cursor: grab;
+  user-select: none;
+  margin: 2px 0;
+  background: color-mix(in srgb, var(--vscode-editor-background, var(--vscode-input-background)) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border, var(--vscode-widget-border, transparent)) 40%, transparent);
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.todo-item:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: color-mix(in srgb, var(--vscode-panel-border, var(--vscode-widget-border, transparent)) 80%, transparent);
+}
+
+.todo-item.dragging {
+  opacity: 0.25;
+}
+
+.todo-checkbox {
+  flex-shrink: 0;
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--vscode-checkbox-background, var(--vscode-button-background));
+}
+
+.todo-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  cursor: default;
+  line-height: 1.4;
+}
+
+.todo-edit-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+}
+
+.todo-delete-btn {
+  flex-shrink: 0;
+  background: none;
+  color: var(--vscode-foreground);
+  opacity: 0;
+  padding: 0 4px;
+  font-size: 15px;
+  line-height: 1;
+  transition: opacity 0.15s;
+  height: auto;
+}
+
+.todo-item:hover .todo-delete-btn {
+  opacity: 0.4;
+}
+
+.todo-delete-btn:hover {
+  opacity: 1 !important;
+  color: var(--vscode-errorForeground);
+  background: none;
+}
+
+/* ---- Drop indicator ---- */
+.drop-indicator {
+  height: 2px;
+  background: var(--vscode-focusBorder);
+  border-radius: 1px;
+  margin: 1px 4px;
+}
+
+/* ---- Groups ---- */
+#ungrouped-container {
+  margin-bottom: 4px;
+}
+
+.group-section {
+  margin-bottom: 4px;
+  border: 1px solid color-mix(in srgb, var(--vscode-panel-border, var(--vscode-widget-border, transparent)) 50%, transparent);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.group-section.group-dragging {
+  opacity: 0.25;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--vscode-sideBarSectionHeader-background);
+  cursor: grab;
+  user-select: none;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vscode-sideBarSectionHeader-foreground, var(--vscode-foreground));
+}
+
+.collapse-toggle {
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 8px;
+  width: 12px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-count {
+  flex-shrink: 0;
+  opacity: 0.5;
+  font-weight: normal;
+  font-size: 10px;
+}
+
+.group-action-btn {
+  flex-shrink: 0;
+  background: none;
+  color: var(--vscode-foreground);
+  opacity: 0;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 1;
+  transition: opacity 0.15s;
+  height: auto;
+}
+
+.group-header:hover .group-action-btn {
+  opacity: 0.5;
+}
+
+.group-action-btn:hover {
+  opacity: 1 !important;
+  background: none;
+}
+
+.group-todo-list {
+  min-height: 8px;
+  padding: 4px 6px;
+}
+
+/* ---- Archive / Completed ---- */
+#archive-section {
+  margin-top: 14px;
+  padding-top: 0;
+}
+
+#archive-section summary {
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  opacity: 0.5;
+  padding: 6px 4px;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+  border-radius: 3px;
+}
+
+#archive-section summary:hover {
+  opacity: 0.8;
+  background: var(--vscode-list-hoverBackground);
+}
+
+#archive-section summary::marker {
+  font-size: 10px;
+}
+
+.archive-badge {
+  font-size: 10px;
+  font-weight: normal;
+  background: color-mix(in srgb, var(--vscode-foreground) 15%, transparent);
+  padding: 0 6px;
+  border-radius: 8px;
+  line-height: 1.6;
+}
+
+.archive-chevron {
+  font-size: 9px;
+  transition: transform 0.15s;
+  display: inline-block;
+  width: 10px;
+}
+
+#archive-section[open] .archive-chevron {
+  transform: rotate(90deg);
+}
+
+#archive-section[open] summary {
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+.archive-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin: 1px 0;
+}
+
+.archive-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.archive-text {
+  flex: 1;
+  min-width: 0;
+  text-decoration: line-through;
+  opacity: 0.5;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.archive-age {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.35;
+}
+
+.archive-action-btn {
+  flex-shrink: 0;
+  background: none;
+  color: var(--vscode-foreground);
+  opacity: 0;
+  padding: 0 3px;
+  font-size: 13px;
+  line-height: 1;
+  transition: opacity 0.15s;
+  height: auto;
+}
+
+.archive-item:hover .archive-action-btn {
+  opacity: 0.4;
+}
+
+.archive-action-btn:hover {
+  opacity: 1 !important;
+  background: none;
+}
+
+/* ---- Group Management ---- */
+#group-management {
+  display: flex;
+  gap: 4px;
+  padding: 8px 0 4px;
+  align-items: stretch;
+  margin-top: 8px;
+}
+
+#group-management input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  opacity: 0.7;
+}
+
+#group-management input[type="text"]:focus {
+  opacity: 1;
+}
+
+#add-group-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  background: none;
+  color: var(--vscode-foreground);
+  opacity: 0.5;
+  border: 1px solid var(--vscode-input-border, color-mix(in srgb, var(--vscode-foreground) 25%, transparent));
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 2px;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+#add-group-btn:hover {
+  opacity: 0.9;
+  background: none;
+  border-color: var(--vscode-focusBorder);
+}
+
+/* ---- Empty state ---- */
+.empty-message {
+  padding: 12px 6px;
+  opacity: 0.4;
+  font-style: italic;
+  font-size: 12px;
+  text-align: center;
+}

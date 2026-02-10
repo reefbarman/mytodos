@@ -1,0 +1,10 @@
+.vscode/**
+.vscode-test/**
+src/**
+dist/**
+.gitignore
+.claude/**
+tsconfig.json
+mise.toml
+.mcp.json
+node_modules/**
