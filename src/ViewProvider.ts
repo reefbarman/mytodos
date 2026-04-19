@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
-import { TodoStorageService } from './TodoStorageService';
+import { StorageService } from './StorageService';
 import { WebviewToExtensionMessage, ExtensionToWebviewMessage } from './types';
 
-export class TodoViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'mytodos.todoView';
+export class ViewProvider implements vscode.WebviewViewProvider {
+  public static readonly viewType = 'mydevnotes.mainView';
   private view?: vscode.WebviewView;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly storage: TodoStorageService
+    private readonly storage: StorageService
   ) {}
 
   public resolveWebviewView(
@@ -93,6 +93,22 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
         this.storage.restoreTodo(message.id);
         this.sendStateToWebview();
         break;
+      case 'addNote':
+        this.storage.addNote(message.content);
+        this.sendStateToWebview();
+        break;
+      case 'editNote':
+        this.storage.editNote(message.id, message.content);
+        this.sendStateToWebview();
+        break;
+      case 'deleteNote':
+        this.storage.deleteNote(message.id);
+        this.sendStateToWebview();
+        break;
+      case 'reorderNote':
+        this.storage.reorderNote(message.id, message.newSortOrder);
+        this.sendStateToWebview();
+        break;
     }
   }
 
@@ -105,7 +121,7 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 
   private getHtmlForWebview(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'main.js')
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'webview.js')
     );
     const styleResetUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'reset.css')
@@ -123,26 +139,15 @@ export class TodoViewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${styleResetUri}" rel="stylesheet">
   <link href="${styleVSCodeUri}" rel="stylesheet">
   <link href="${styleMainUri}" rel="stylesheet">
-  <title>My TODOs</title>
+  <title>My Dev Notes</title>
 </head>
 <body>
-  <div id="app">
-    <div id="ungrouped-container"></div>
-    <div id="groups-container"></div>
-    <div id="group-management">
-      <input type="text" id="group-input" placeholder="New group name..." />
-      <button id="add-group-btn">+ Group</button>
-    </div>
-    <details id="archive-section">
-      <summary><span class="archive-chevron">&#9654;</span><span class="archive-label">Completed</span> <span id="archive-count" class="archive-badge">0</span></summary>
-      <div id="archive-list"></div>
-    </details>
-  </div>
+  <div id="root"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

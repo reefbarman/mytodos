@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__native-claude__list_files",
+      "mcp__native-claude__read_file",
+      "mcp__native-claude__apply_diff",
+      "mcp__native-claude__execute_command",
+      "mcp__native-claude__search_files",
+      "mcp__native-claude__write_file",
+      "mcp__native-claude__get_diagnostics",
+      "Bash(node out/mcp-server.js)",
+      "Bash(printf '{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":1,\"\"method\"\":\"\"initialize\"\",\"\"params\"\":{\"\"protocolVersion\"\":\"\"2024-11-05\"\",\"\"capabilities\"\":{},\"\"clientInfo\"\":{\"\"name\"\":\"\"test\"\",\"\"version\"\":\"\"1.0\"\"}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"method\"\":\"\"notifications/initialized\"\"}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":2,\"\"method\"\":\"\"tools/list\"\"}\\\\n')",
+      "Bash(printf '{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":1,\"\"method\"\":\"\"initialize\"\",\"\"params\"\":{\"\"protocolVersion\"\":\"\"2024-11-05\"\",\"\"capabilities\"\":{},\"\"clientInfo\"\":{\"\"name\"\":\"\"test\"\",\"\"version\"\":\"\"1.0\"\"}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"method\"\":\"\"notifications/initialized\"\"}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":2,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"add_todo\"\",\"\"arguments\"\":{\"\"items\"\":[{\"\"text\"\":\"\"Test TODO from MCP\"\"}]}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":3,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"add_note\"\",\"\"arguments\"\":{\"\"content\"\":\"\"# Test Note\\\\\\\\nThis is a **markdown** note from MCP.\"\"}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":4,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"list_todos\"\",\"\"arguments\"\":{}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":5,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"list_notes\"\",\"\"arguments\"\":{}}}\\\\n')",
+      "Bash(printf '{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":1,\"\"method\"\":\"\"initialize\"\",\"\"params\"\":{\"\"protocolVersion\"\":\"\"2024-11-05\"\",\"\"capabilities\"\":{},\"\"clientInfo\"\":{\"\"name\"\":\"\"test\"\",\"\"version\"\":\"\"1.0\"\"}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"method\"\":\"\"notifications/initialized\"\"}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":2,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"complete_todo\"\",\"\"arguments\"\":{\"\"items\"\":[{\"\"text_match\"\":\"\"Test TODO from MCP\"\"}]}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":3,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"edit_note\"\",\"\"arguments\"\":{\"\"items\"\":[{\"\"content_match\"\":\"\"Test Note\"\",\"\"new_content\"\":\"\"# Updated Note\\\\\\\\nEdited via MCP.\"\"}]}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":4,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"list_notes\"\",\"\"arguments\"\":{}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":5,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"delete_todo\"\",\"\"arguments\"\":{\"\"items\"\":[{\"\"text_match\"\":\"\"Test TODO from MCP\"\"}]}}}\\\\n{\"\"jsonrpc\"\":\"\"2.0\"\",\"\"id\"\":6,\"\"method\"\":\"\"tools/call\"\",\"\"params\"\":{\"\"name\"\":\"\"delete_note\"\",\"\"arguments\"\":{\"\"items\"\":[{\"\"content_match\"\":\"\"Updated Note\"\"}]}}}\\\\n')",
+      "mcp__mydevnotes__list_todos",
+      "mcp__mydevnotes__list_groups",
+      "mcp__mydevnotes__list_notes",
+      "mcp__mydevnotes__add_group",
+      "mcp__mydevnotes__add_todo",
+      "mcp__mydevnotes__add_note",
+      "mcp__mydevnotes__edit_todo",
+      "mcp__mydevnotes__move_todo",
+      "mcp__mydevnotes__rename_group",
+      "mcp__mydevnotes__edit_note",
+      "mcp__mydevnotes__complete_todo",
+      "mcp__mydevnotes__list_completed_todos",
+      "mcp__mydevnotes__uncomplete_todo",
+      "mcp__mydevnotes__delete_todo",
+      "mcp__mydevnotes__delete_note",
+      "mcp__mydevnotes__delete_group",
+      "Bash(npm run bundle:mcp)",
+      "Bash(npx @vscode/vsce package)",
+      "Bash(code --install-extension mydevnotes-0.9.0.vsix)"
+    ]
+  }
+}

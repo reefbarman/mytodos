@@ -2,21 +2,29 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { TodoViewProvider } from './TodoViewProvider';
-import { TodoStorageService } from './TodoStorageService';
+import { ViewProvider } from './ViewProvider';
+import { StorageService } from './StorageService';
 
 export function activate(context: vscode.ExtensionContext) {
-  const storage = new TodoStorageService(context.workspaceState);
+  const storage = new StorageService(context.workspaceState);
 
-  // Set up file-based sync for MCP server access
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
   if (workspaceFolder) {
-    const filePath = path.join(workspaceFolder.uri.fsPath, '.vscode', '.mytodos.json');
-    storage.setFilePath(filePath);
+    const workspacePath = workspaceFolder.uri.fsPath;
 
-    // Watch for external changes (from MCP server)
+    // Migrate old .vscode/.mytodos.json if it exists
+    const oldFilePath = path.join(workspacePath, '.vscode', '.mytodos.json');
+    if (fs.existsSync(oldFilePath)) {
+      storage.setWorkspacePath(workspacePath);
+      storage.importOldFile(oldFilePath);
+    } else {
+      storage.setWorkspacePath(workspacePath);
+    }
+
+    // Watch for external changes to the global data file (from MCP server)
+    const globalFileUri = vscode.Uri.file(storage.globalFilePath);
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceFolder, '.vscode/.mytodos.json')
+      new vscode.RelativePattern(vscode.Uri.file(path.dirname(storage.globalFilePath)), 'data.json')
     );
 
     watcher.onDidChange(() => {
@@ -36,24 +44,24 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(watcher);
 
     // Handle MCP auto-registration
-    handleMcpAutoRegister(context, workspaceFolder.uri.fsPath);
+    handleMcpAutoRegister(context, workspacePath);
   }
 
   // Clean up archived items older than 7 days
   storage.cleanupExpiredArchive();
 
-  const provider = new TodoViewProvider(context.extensionUri, storage);
+  const provider = new ViewProvider(context.extensionUri, storage);
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
-      TodoViewProvider.viewType,
+      ViewProvider.viewType,
       provider,
       { webviewOptions: { retainContextWhenHidden: true } }
     )
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('mytodos.addTodo', () => {
+    vscode.commands.registerCommand('mydevnotes.addTodo', () => {
       provider.postMessageToWebview({ type: 'focusAddInput' });
     })
   );
@@ -70,7 +78,7 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {}
 
 function handleMcpAutoRegister(context: vscode.ExtensionContext, workspacePath: string): void {
-  const config = vscode.workspace.getConfiguration('mytodos');
+  const config = vscode.workspace.getConfiguration('mydevnotes');
   const setting = config.get<string>('mcpAutoRegister', 'ask');
 
   if (setting === 'disabled') { return; }
@@ -78,7 +86,7 @@ function handleMcpAutoRegister(context: vscode.ExtensionContext, workspacePath: 
   if (setting === 'ask') {
     // First time — ask the user
     vscode.window.showInformationMessage(
-      'My TODOs: Enable MCP server for AI agents (e.g. Claude Code)?',
+      'My Dev Notes: Enable MCP server for AI agents (e.g. Claude Code)?',
       'Enable',
       'No thanks'
     ).then(choice => {
@@ -102,9 +110,6 @@ function registerMcpServer(context: vscode.ExtensionContext, _workspacePath: str
   const mcpServerPath = path.join(context.extensionPath, 'out', 'mcp-server.js');
   if (!fs.existsSync(mcpServerPath)) { return; }
 
-  // Register globally in ~/.claude.json so it works in all workspaces.
-  // The MCP server uses process.cwd() to find .vscode/.mytodos.json,
-  // and Claude Code sets cwd to the workspace root automatically.
   const claudeJsonPath = path.join(os.homedir(), '.claude.json');
 
   try {
@@ -114,15 +119,20 @@ function registerMcpServer(context: vscode.ExtensionContext, _workspacePath: str
     }
 
     // Check if already registered with the correct path
-    const existing = config.mcpServers?.mytodos;
+    const existing = config.mcpServers?.mydevnotes;
     if (existing && existing.args?.[0] === mcpServerPath) { return; }
 
     // Register / update
     if (!config.mcpServers) { config.mcpServers = {}; }
-    config.mcpServers.mytodos = {
+    config.mcpServers.mydevnotes = {
       command: 'node',
       args: [mcpServerPath],
     };
+
+    // Clean up old mytodos entry if present
+    if (config.mcpServers.mytodos) {
+      delete config.mcpServers.mytodos;
+    }
 
     fs.writeFileSync(claudeJsonPath, JSON.stringify(config, null, 2), 'utf-8');
   } catch { /* ignore */ }

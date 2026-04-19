@@ -1,6 +1,8 @@
 .vscode/**
 .vscode-test/**
 src/**
+webview/**
+mcp-server.js
 dist/**
 .gitignore
 .claude/**
@@ -8,3 +10,4 @@ tsconfig.json
 mise.toml
 .mcp.json
 node_modules/**
+plans/**

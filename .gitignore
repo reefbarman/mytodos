@@ -2,5 +2,4 @@ node_modules/
 out/
 dist/
 *.vsix
-.vscode/.mytodos.json
 .mcp.json

@@ -1,13 +1,13 @@
 {
-  "name": "mytodos",
-  "displayName": "My TODOs",
-  "description": "Workspace-scoped TODO list with groups and archive",
-  "version": "0.8.1",
+  "name": "mydevnotes",
+  "displayName": "My Dev Notes",
+  "description": "Workspace-scoped TODO list and scratch pad with groups, archive, markdown notes, and MCP server",
+  "version": "0.9.5",
   "publisher": "tristancartledge",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/reefbarman/mytodos"
+    "url": "https://github.com/reefbarman/mydevnotes"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -18,6 +18,9 @@
   "keywords": [
     "todo",
     "task",
+    "notes",
+    "scratch pad",
+    "markdown",
     "productivity",
     "mcp",
     "claude"
@@ -28,33 +31,33 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "mytodos-sidebar",
-          "title": "My TODOs",
-          "icon": "media/todo-icon.svg"
+          "id": "mydevnotes-sidebar",
+          "title": "My Dev Notes",
+          "icon": "$(notebook)"
         }
       ]
     },
     "views": {
-      "mytodos-sidebar": [
+      "mydevnotes-sidebar": [
         {
           "type": "webview",
-          "id": "mytodos.todoView",
-          "name": "My TODOs"
+          "id": "mydevnotes.mainView",
+          "name": "My Dev Notes"
         }
       ]
     },
     "commands": [
       {
-        "command": "mytodos.addTodo",
+        "command": "mydevnotes.addTodo",
         "title": "Add TODO",
-        "category": "My TODOs",
+        "category": "My Dev Notes",
         "icon": "$(add)"
       }
     ],
     "configuration": {
-      "title": "My TODOs",
+      "title": "My Dev Notes",
       "properties": {
-        "mytodos.mcpAutoRegister": {
+        "mydevnotes.mcpAutoRegister": {
           "type": "string",
           "enum": [
             "enabled",
@@ -69,18 +72,27 @@
     "menus": {
       "view/title": [
         {
-          "command": "mytodos.addTodo",
-          "when": "view == mytodos.todoView",
+          "command": "mydevnotes.addTodo",
+          "when": "view == mydevnotes.mainView",
           "group": "navigation"
         }
       ]
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile && npm run bundle:mcp",
+    "vscode:prepublish": "npm run compile && npm run bundle:mcp && npm run bundle:webview",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "bundle:mcp": "esbuild mcp-server.js --bundle --platform=node --target=node18 --outfile=out/mcp-server.js --format=cjs"
+    "bundle:mcp": "esbuild mcp-server.js --bundle --platform=node --target=node18 --outfile=out/mcp-server.js --format=cjs",
+    "bundle:webview": "esbuild webview/App.tsx --bundle --outfile=out/webview.js --format=iife --target=es2020 --jsx=automatic --jsx-import-source=preact --external:vscode",
+    "package": "vsce package --no-dependencies",
+    "reinstall": "npm version patch --no-git-tag-version && npm run package && code --install-extension mydevnotes-$(node -p \"require('./package.json').version\").vsix --force",
+    "release": "bash scripts/release.sh",
+    "release:install": "bash scripts/release.sh --install"
+  },
+  "dependencies": {
+    "marked": "^15.0.0",
+    "preact": "^10.25.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
