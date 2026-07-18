@@ -1,4 +1,5 @@
-import { useState, useRef } from "preact/hooks";
+import { MarkdownEditor } from "./MarkdownEditor";
+import { useState } from "preact/hooks";
 
 interface InlineAddInputProps {
   groupId: string;
@@ -13,19 +14,13 @@ export function InlineAddInput({
 }: InlineAddInputProps) {
   const [showInput, setShowInput] = useState(false);
   const [text, setText] = useState("");
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const committedRef = useRef(false);
 
   const openInput = () => {
     setShowInput(true);
     setText("");
-    committedRef.current = false;
-    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const commit = () => {
-    if (committedRef.current) return;
-    committedRef.current = true;
     const trimmed = text.trim();
     if (trimmed) {
       onAdd(trimmed, groupId);
@@ -35,31 +30,22 @@ export function InlineAddInput({
   };
 
   const cancel = () => {
-    committedRef.current = true;
     setShowInput(false);
     setText("");
   };
 
   if (showInput) {
     return (
-      <textarea
-        ref={inputRef}
-        class="todo-add-inline"
-        placeholder="Add a TODO..."
+      <MarkdownEditor
         value={text}
-        onInput={(e) => setText((e.target as HTMLTextAreaElement).value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.preventDefault();
-            cancel();
-            return;
-          }
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            commit();
-          }
-        }}
+        onChange={setText}
+        onCommit={commit}
+        onCancel={cancel}
+        placeholder="Add a TODO... Paste/drop screenshots or use Markdown."
+        className="todo-add-inline"
+        autoFocus
+        commitLabel="Add"
+        compact
       />
     );
   }

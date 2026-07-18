@@ -1,5 +1,11 @@
 // Re-export shared types for webview usage
-export type { TodoItem, TodoGroup, NoteItem, WebviewState } from '../src/types';
+export type {
+  Scope,
+  TodoItem,
+  TodoGroup,
+  NoteItem,
+  WebviewState,
+} from "../src/types";
 
 // VS Code API type for webview
 export interface VSCodeApi {

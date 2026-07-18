@@ -1,0 +1,9 @@
+{
+  "agentlink.agentModel": "gpt-5.6-sol",
+  "agentlink.modeModelPreferences": {
+    "code": "gpt-5.6-sol",
+    "architect": "gpt-5.6-sol",
+    "ask": "gpt-5.5",
+    "debug": "gpt-5.3-codex"
+  }
+}

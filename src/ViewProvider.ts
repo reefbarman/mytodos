@@ -1,20 +1,41 @@
-import * as vscode from 'vscode';
-import { StorageService } from './StorageService';
-import { WebviewToExtensionMessage, ExtensionToWebviewMessage } from './types';
+import * as vscode from "vscode";
+
+import {
+  ExtensionToWebviewMessage,
+  Scope,
+  WebviewToExtensionMessage,
+} from "./types";
+
+import { StorageService } from "./StorageService";
+
+const ACTIVE_SCOPE_KEY = "mydevnotes.activeScope";
+
+function isScope(value: unknown): value is Scope {
+  return value === "project" || value === "global";
+}
 
 export class ViewProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'mydevnotes.mainView';
+  public static readonly viewType = "mydevnotes.mainView";
   private view?: vscode.WebviewView;
+  private activeScope: Scope;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
-    private readonly storage: StorageService
-  ) {}
+    private readonly storage: StorageService,
+    private readonly globalState: vscode.Memento,
+    private readonly onStateChanged: () => void,
+  ) {
+    const storedScope = this.globalState.get<Scope>(
+      ACTIVE_SCOPE_KEY,
+      "project",
+    );
+    this.activeScope = isScope(storedScope) ? storedScope : "project";
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
-    _token: vscode.CancellationToken
+    _token: vscode.CancellationToken,
   ): void {
     this.view = webviewView;
 
@@ -25,9 +46,11 @@ export class ViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
 
-    webviewView.webview.onDidReceiveMessage((message: WebviewToExtensionMessage) => {
-      this.handleMessage(message);
-    });
+    webviewView.webview.onDidReceiveMessage(
+      (message: WebviewToExtensionMessage) => {
+        this.handleMessage(message);
+      },
+    );
 
     webviewView.onDidChangeVisibility(() => {
       if (webviewView.visible) {
@@ -40,97 +63,133 @@ export class ViewProvider implements vscode.WebviewViewProvider {
     this.sendStateToWebview();
   }
 
+  public reveal(): void {
+    vscode.commands.executeCommand("mydevnotes.mainView.focus");
+  }
+
   public postMessageToWebview(message: ExtensionToWebviewMessage): void {
     this.view?.webview.postMessage(message);
   }
 
   private handleMessage(message: WebviewToExtensionMessage): void {
     switch (message.type) {
-      case 'ready':
+      case "ready":
         this.sendStateToWebview();
         break;
-      case 'addTodo':
-        this.storage.addTodo(message.text, message.groupId);
+      case "setActiveScope":
+        this.activeScope = message.scope;
+        this.globalState.update(ACTIVE_SCOPE_KEY, message.scope);
         this.sendStateToWebview();
         break;
-      case 'toggleTodo':
-        this.storage.toggleTodo(message.id);
-        this.sendStateToWebview();
+      case "setCurrentTask":
+        this.storage.setCurrentTask(message.id);
+        this.onStateChanged();
         break;
-      case 'deleteTodo':
-        this.storage.deleteTodo(message.id);
-        this.sendStateToWebview();
+      case "addTodo":
+        this.storage.addTodo(message.scope, message.text, message.groupId);
+        this.onStateChanged();
         break;
-      case 'editTodo':
-        this.storage.editTodo(message.id, message.text);
-        this.sendStateToWebview();
+      case "toggleTodo":
+        this.storage.toggleTodo(message.scope, message.id);
+        this.onStateChanged();
         break;
-      case 'reorderTodo':
-        this.storage.reorderTodo(message.id, message.newGroupId, message.newSortOrder);
-        this.sendStateToWebview();
+      case "deleteTodo":
+        this.storage.deleteTodo(message.scope, message.id);
+        this.onStateChanged();
         break;
-      case 'addGroup':
-        this.storage.addGroup(message.name);
-        this.sendStateToWebview();
+      case "editTodo":
+        this.storage.editTodo(message.scope, message.id, message.text);
+        this.onStateChanged();
         break;
-      case 'renameGroup':
-        this.storage.renameGroup(message.id, message.name);
-        this.sendStateToWebview();
+      case "reorderTodo":
+        this.storage.reorderTodo(
+          message.scope,
+          message.id,
+          message.newGroupId,
+          message.newSortOrder,
+        );
+        this.onStateChanged();
         break;
-      case 'deleteGroup':
-        this.storage.deleteGroup(message.id);
-        this.sendStateToWebview();
+      case "snoozeTodo":
+        this.storage.snoozeTodo(message.scope, message.id, message.until);
+        this.onStateChanged();
         break;
-      case 'reorderGroup':
-        this.storage.reorderGroup(message.id, message.newSortOrder);
-        this.sendStateToWebview();
+      case "unsnoozeTodo":
+        this.storage.unsnoozeTodo(message.scope, message.id);
+        this.onStateChanged();
         break;
-      case 'toggleGroupCollapse':
-        this.storage.toggleGroupCollapse(message.id);
-        this.sendStateToWebview();
+      case "addGroup":
+        this.storage.addGroup(message.scope, message.name);
+        this.onStateChanged();
         break;
-      case 'restoreTodo':
-        this.storage.restoreTodo(message.id);
-        this.sendStateToWebview();
+      case "renameGroup":
+        this.storage.renameGroup(message.scope, message.id, message.name);
+        this.onStateChanged();
         break;
-      case 'addNote':
-        this.storage.addNote(message.content);
-        this.sendStateToWebview();
+      case "deleteGroup":
+        this.storage.deleteGroup(message.scope, message.id);
+        this.onStateChanged();
         break;
-      case 'editNote':
-        this.storage.editNote(message.id, message.content);
-        this.sendStateToWebview();
+      case "reorderGroup":
+        this.storage.reorderGroup(
+          message.scope,
+          message.id,
+          message.newSortOrder,
+        );
+        this.onStateChanged();
         break;
-      case 'deleteNote':
-        this.storage.deleteNote(message.id);
-        this.sendStateToWebview();
+      case "toggleGroupCollapse":
+        this.storage.toggleGroupCollapse(message.scope, message.id);
+        this.onStateChanged();
         break;
-      case 'reorderNote':
-        this.storage.reorderNote(message.id, message.newSortOrder);
-        this.sendStateToWebview();
+      case "restoreTodo":
+        this.storage.restoreTodo(message.scope, message.id);
+        this.onStateChanged();
+        break;
+      case "addNote":
+        this.storage.addNote(message.scope, message.content);
+        this.onStateChanged();
+        break;
+      case "editNote":
+        this.storage.editNote(message.scope, message.id, message.content);
+        this.onStateChanged();
+        break;
+      case "deleteNote":
+        this.storage.deleteNote(message.scope, message.id);
+        this.onStateChanged();
+        break;
+      case "reorderNote":
+        this.storage.reorderNote(
+          message.scope,
+          message.id,
+          message.newSortOrder,
+        );
+        this.onStateChanged();
         break;
     }
   }
 
   private sendStateToWebview(): void {
-    if (!this.view) { return; }
-    const state = this.storage.getWebviewState();
-    const message: ExtensionToWebviewMessage = { type: 'stateUpdate', state };
+    if (!this.view) {
+      return;
+    }
+    const state = this.storage.getWebviewState(this.activeScope);
+    const message: ExtensionToWebviewMessage = { type: "stateUpdate", state };
     this.view.webview.postMessage(message);
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'out', 'webview.js')
+      vscode.Uri.joinPath(this.extensionUri, "out", "webview.js"),
     );
     const styleResetUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'reset.css')
+      vscode.Uri.joinPath(this.extensionUri, "media", "reset.css"),
     );
     const styleVSCodeUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'vscode.css')
+      vscode.Uri.joinPath(this.extensionUri, "media", "vscode.css"),
     );
     const styleMainUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'media', 'main.css')
+      vscode.Uri.joinPath(this.extensionUri, "media", "main.css"),
     );
     const nonce = getNonce();
 
@@ -139,7 +198,7 @@ export class ViewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    content="default-src 'none'; img-src ${webview.cspSource} data: blob:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${styleResetUri}" rel="stylesheet">
   <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -155,8 +214,9 @@ export class ViewProvider implements vscode.WebviewViewProvider {
 }
 
 function getNonce(): string {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let text = "";
+  const possible =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   for (let i = 0; i < 32; i++) {
     text += possible.charAt(Math.floor(Math.random() * possible.length));
   }

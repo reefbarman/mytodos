@@ -1,4 +1,6 @@
-import type { TodoItem as TodoItemType, TodoGroup } from "../types";
+import type { TodoGroup, TodoItem as TodoItemType } from "../types";
+
+import { MarkdownContent } from "./MarkdownContent";
 
 interface ArchiveSectionProps {
   archivedTodos: TodoItemType[];
@@ -83,7 +85,10 @@ export function ArchiveSection({
                       title="Uncheck to restore"
                       onChange={() => onRestore(todo.id)}
                     />
-                    <span class="archive-text">{todo.text}</span>
+                    <MarkdownContent
+                      content={todo.text}
+                      className="archive-text"
+                    />
                     <span class="archive-age">
                       {formatAge(todo.completedAt)}
                     </span>

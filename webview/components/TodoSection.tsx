@@ -1,25 +1,34 @@
-import { useRef, useEffect } from "preact/hooks";
-import type { TodoItem as TodoItemType } from "../types";
-import { TodoItem } from "./TodoItem";
+import type { Scope, TodoItem as TodoItemType } from "../types";
+import { useEffect, useRef } from "preact/hooks";
+
 import { InlineAddInput } from "./InlineAddInput";
+import { TodoItem } from "./TodoItem";
 import { setupDropZone } from "../hooks/useDragAndDrop";
 
 interface TodoSectionProps {
   todos: TodoItemType[];
+  scope: Scope;
+  currentTaskId?: string;
   onToggle: (id: string) => void;
   onEdit: (id: string, text: string) => void;
   onDelete: (id: string) => void;
   onAdd: (text: string, groupId: string) => void;
   onReorder: (id: string, newGroupId: string, newSortOrder: number) => void;
+  onSnooze: (id: string, until: number) => void;
+  onSetCurrentTask: (id: string | null) => void;
 }
 
 export function TodoSection({
   todos,
+  scope,
+  currentTaskId,
   onToggle,
   onEdit,
   onDelete,
   onAdd,
   onReorder,
+  onSnooze,
+  onSetCurrentTask,
 }: TodoSectionProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -39,9 +48,13 @@ export function TodoSection({
         <TodoItem
           key={todo.id}
           todo={todo}
+          scope={scope}
+          currentTaskId={currentTaskId}
           onToggle={onToggle}
           onEdit={onEdit}
           onDelete={onDelete}
+          onSnooze={onSnooze}
+          onSetCurrentTask={onSetCurrentTask}
         />
       ))}
       <InlineAddInput groupId="" onAdd={onAdd} />

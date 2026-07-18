@@ -2,7 +2,8 @@
 /**
  * MCP Server for My Dev Notes VS Code Extension
  * Uses the official @modelcontextprotocol/sdk.
- * Reads/writes ~/.mydevnotes/data.json, keyed by workspace path (process.cwd()).
+ * Reads/writes ~/.mydevnotes/data.json, keyed by workspace path (process.cwd())
+ * or the reserved global scope key.
  */
 
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
@@ -19,32 +20,73 @@ const { version } = require("./package.json");
 const GLOBAL_DIR = path.join(os.homedir(), ".mydevnotes");
 const GLOBAL_FILE = path.join(GLOBAL_DIR, "data.json");
 const WORKSPACE_KEY = process.cwd();
-const SCHEMA_VERSION = 2;
+const GLOBAL_SCOPE_KEY = "::global::";
+const SCHEMA_VERSION = 3;
+const TAG_RE = /#([\p{L}\d_-]+)/gu;
+
+const scopeSchema = z
+  .enum(["project", "global"])
+  .optional()
+  .describe(
+    "Data scope: project (current workspace) or global (visible everywhere). Defaults to project.",
+  );
 
 // ---- State helpers ----
 
-function readState() {
+function emptyState() {
+  return { todos: [], groups: [], notes: [], schemaVersion: SCHEMA_VERSION };
+}
+
+function stateKey(scope = "project") {
+  return scope === "global" ? GLOBAL_SCOPE_KEY : WORKSPACE_KEY;
+}
+
+function isAppState(value) {
+  return value && Array.isArray(value.todos) && Array.isArray(value.groups);
+}
+
+function migrateState(state, scope = "project") {
+  state.notes = Array.isArray(state.notes) ? state.notes : [];
+  state.schemaVersion = SCHEMA_VERSION;
+  const now = Date.now();
+  for (const todo of state.todos) {
+    if (todo.done || (todo.snoozedUntil && todo.snoozedUntil <= now)) {
+      todo.snoozedUntil = undefined;
+    }
+  }
+  if (scope === "global") {
+    state.currentTaskId = undefined;
+  } else if (
+    state.currentTaskId &&
+    !state.todos.some(
+      (todo) =>
+        todo.id === state.currentTaskId &&
+        !todo.done &&
+        (!todo.snoozedUntil || todo.snoozedUntil <= Date.now()),
+    )
+  ) {
+    state.currentTaskId = undefined;
+  }
+  return state;
+}
+
+function readState(scope = "project") {
   try {
     if (fs.existsSync(GLOBAL_FILE)) {
       const data = fs.readFileSync(GLOBAL_FILE, "utf-8");
       const globalData = JSON.parse(data);
-      const state = globalData[WORKSPACE_KEY];
-      if (state && Array.isArray(state.todos) && Array.isArray(state.groups)) {
-        // Ensure notes array exists (schema migration)
-        if (!Array.isArray(state.notes)) {
-          state.notes = [];
-          state.schemaVersion = SCHEMA_VERSION;
-        }
-        return state;
+      const state = globalData[stateKey(scope)];
+      if (isAppState(state)) {
+        return migrateState(state, scope);
       }
     }
   } catch {
     /* ignore */
   }
-  return { todos: [], groups: [], notes: [], schemaVersion: SCHEMA_VERSION };
+  return emptyState();
 }
 
-function writeState(state) {
+function writeState(state, scope = "project") {
   if (!fs.existsSync(GLOBAL_DIR)) {
     fs.mkdirSync(GLOBAL_DIR, { recursive: true });
   }
@@ -56,8 +98,10 @@ function writeState(state) {
   } catch {
     globalData = {};
   }
-  globalData[WORKSPACE_KEY] = state;
-  fs.writeFileSync(GLOBAL_FILE, JSON.stringify(globalData, null, 2), "utf-8");
+  globalData[stateKey(scope)] = migrateState(state, scope);
+  const tempFile = `${GLOBAL_FILE}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(globalData, null, 2), "utf-8");
+  fs.renameSync(tempFile, GLOBAL_FILE);
 }
 
 function generateId() {
@@ -94,7 +138,29 @@ function normalizeNewlines(str) {
   return str.replace(/\\n/g, "\n");
 }
 
-function formatTodos(todos, groups, { inlineGroup = false } = {}) {
+// Keep in sync with webview/App.tsx tag parsing.
+function tagsForTodo(todo) {
+  const tags = new Set();
+  for (const match of todo.text.matchAll(TAG_RE)) {
+    tags.add(match[1].toLowerCase());
+  }
+  return [...tags];
+}
+
+function renumberGroup(state, groupId) {
+  state.todos
+    .filter((t) => t.groupId === groupId && !t.done && !t.snoozedUntil)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .forEach((todo, index) => {
+      todo.sortOrder = index;
+    });
+}
+
+function formatTodos(
+  todos,
+  groups,
+  { inlineGroup = false, currentTaskId } = {},
+) {
   if (inlineGroup) {
     return todos
       .map((todo) => {
@@ -102,7 +168,11 @@ function formatTodos(todos, groups, { inlineGroup = false } = {}) {
           ? groups.find((g) => g.id === todo.groupId)?.name || "Unknown"
           : null;
         const groupTag = groupName ? ` [${groupName}]` : "";
-        return `  - ${todo.text}${groupTag} (id: ${todo.id})`;
+        const current = todo.id === currentTaskId ? " [current]" : "";
+        const snoozed = todo.snoozedUntil
+          ? ` [snoozed until ${new Date(todo.snoozedUntil).toLocaleString()}]`
+          : "";
+        return `  - ${todo.text}${groupTag}${current}${snoozed} (id: ${todo.id})`;
       })
       .join("\n");
   }
@@ -122,10 +192,21 @@ function formatTodos(todos, groups, { inlineGroup = false } = {}) {
       lines.push(`[${groupName}]`);
     }
     for (const todo of items) {
-      lines.push(`  - ${todo.text} (id: ${todo.id})`);
+      const current = todo.id === currentTaskId ? " [current]" : "";
+      const snoozed = todo.snoozedUntil
+        ? ` [snoozed until ${new Date(todo.snoozedUntil).toLocaleString()}]`
+        : "";
+      lines.push(`  - ${todo.text}${current}${snoozed} (id: ${todo.id})`);
     }
   }
   return lines.join("\n");
+}
+
+function textResponse(text, isError = false) {
+  return {
+    content: [{ type: "text", text }],
+    ...(isError ? { isError: true } : {}),
+  };
 }
 
 // ---- Server setup ----
@@ -139,71 +220,78 @@ const server = new McpServer({
 
 server.tool(
   "list_todos",
-  "List active (not completed) TODOs. Optionally filter by group name.",
-  { group_name: z.string().optional().describe("Filter by group name") },
-  async ({ group_name }) => {
-    const state = readState();
-    let todos = state.todos.filter((t) => !t.done);
+  "List active (not completed) TODOs. Optionally filter by group name, tag, and scope.",
+  {
+    scope: scopeSchema,
+    group_name: z.string().optional().describe("Filter by group name"),
+    tag: z
+      .string()
+      .optional()
+      .describe("Filter by #tag (case-insensitive, omit #)"),
+    include_snoozed: z
+      .boolean()
+      .optional()
+      .describe("Include snoozed TODOs. Defaults to false."),
+  },
+  async ({ scope = "project", group_name, tag, include_snoozed = false }) => {
+    const state = readState(scope);
+    const now = Date.now();
+    let todos = state.todos.filter(
+      (t) =>
+        !t.done &&
+        (include_snoozed || !t.snoozedUntil || t.snoozedUntil <= now),
+    );
     if (group_name) {
       const group = state.groups.find(
         (g) => g.name.toLowerCase() === group_name.toLowerCase(),
       );
-      if (group) {
-        todos = todos.filter((t) => t.groupId === group.id);
-      } else {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No group found with name "${group_name}". Active TODOs:\n${formatTodos(todos, state.groups)}`,
-            },
-          ],
-        };
+      if (!group) {
+        return textResponse(
+          `No group found with name "${group_name}". Active TODOs:\n${formatTodos(todos, state.groups, { currentTaskId: state.currentTaskId })}`,
+        );
       }
+      todos = todos.filter((t) => t.groupId === group.id);
+    }
+    if (tag) {
+      const normalizedTag = tag.replace(/^#/, "").toLowerCase();
+      todos = todos.filter((todo) => tagsForTodo(todo).includes(normalizedTag));
     }
     todos.sort((a, b) => a.sortOrder - b.sortOrder);
     if (todos.length === 0) {
-      return { content: [{ type: "text", text: "No active TODOs." }] };
+      return textResponse(`No active TODOs in ${scope} scope.`);
     }
-    return {
-      content: [{ type: "text", text: formatTodos(todos, state.groups) }],
-    };
+    return textResponse(
+      formatTodos(todos, state.groups, { currentTaskId: state.currentTaskId }),
+    );
   },
 );
 
 server.tool(
   "list_completed_todos",
-  "List completed (done) TODOs. Optionally filter by group name.",
-  { group_name: z.string().optional().describe("Filter by group name") },
-  async ({ group_name }) => {
-    const state = readState();
+  "List completed (done) TODOs. Optionally filter by group name and scope.",
+  {
+    scope: scopeSchema,
+    group_name: z.string().optional().describe("Filter by group name"),
+  },
+  async ({ scope = "project", group_name }) => {
+    const state = readState(scope);
     let todos = state.todos.filter((t) => t.done);
     if (group_name) {
       const group = state.groups.find(
         (g) => g.name.toLowerCase() === group_name.toLowerCase(),
       );
-      if (group) {
-        todos = todos.filter((t) => t.groupId === group.id);
-      } else {
-        return {
-          content: [
-            { type: "text", text: `No group found with name "${group_name}".` },
-          ],
-        };
+      if (!group) {
+        return textResponse(`No group found with name "${group_name}".`, true);
       }
+      todos = todos.filter((t) => t.groupId === group.id);
     }
     todos.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
     if (todos.length === 0) {
-      return { content: [{ type: "text", text: "No completed TODOs." }] };
+      return textResponse(`No completed TODOs in ${scope} scope.`);
     }
-    return {
-      content: [
-        {
-          type: "text",
-          text: formatTodos(todos, state.groups, { inlineGroup: true }),
-        },
-      ],
-    };
+    return textResponse(
+      formatTodos(todos, state.groups, { inlineGroup: true }),
+    );
   },
 );
 
@@ -222,6 +310,7 @@ server.tool(
   "add_todo",
   "Add one or more TODO items.",
   {
+    scope: scopeSchema,
     items: z
       .array(
         z.object({
@@ -235,8 +324,8 @@ server.tool(
       .min(1)
       .describe("TODOs to add"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       let groupId = "";
@@ -251,7 +340,7 @@ server.tool(
         groupId = group.id;
       }
       const todosInGroup = state.todos.filter(
-        (t) => t.groupId === groupId && !t.done,
+        (t) => t.groupId === groupId && !t.done && !t.snoozedUntil,
       );
       state.todos.push({
         id: generateId(),
@@ -264,10 +353,10 @@ server.tool(
       const name = groupId
         ? state.groups.find((g) => g.id === groupId)?.name
         : "Ungrouped";
-      results.push(`Added: "${item.text}" (${name})`);
+      results.push(`Added (${scope}): "${item.text}" (${name})`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
@@ -275,10 +364,11 @@ server.tool(
   "complete_todo",
   "Mark one or more TODOs as completed. Match by id (preferred) or text.",
   {
+    scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to complete"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const todo = findTodo(
@@ -293,10 +383,14 @@ server.tool(
       }
       todo.done = true;
       todo.completedAt = Date.now();
+      todo.snoozedUntil = undefined;
+      if (scope === "project" && state.currentTaskId === todo.id) {
+        state.currentTaskId = undefined;
+      }
       results.push(`Completed: "${todo.text}"`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
@@ -304,10 +398,11 @@ server.tool(
   "uncomplete_todo",
   "Restore one or more completed TODOs back to active. Match by id (preferred) or text.",
   {
+    scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to restore"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const todo = findTodo(
@@ -322,14 +417,19 @@ server.tool(
       }
       todo.done = false;
       todo.completedAt = undefined;
+      todo.snoozedUntil = undefined;
       const todosInGroup = state.todos.filter(
-        (t) => t.groupId === todo.groupId && !t.done && t.id !== todo.id,
+        (t) =>
+          t.groupId === todo.groupId &&
+          !t.done &&
+          !t.snoozedUntil &&
+          t.id !== todo.id,
       );
       todo.sortOrder = todosInGroup.length;
       results.push(`Restored: "${todo.text}"`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
@@ -337,10 +437,11 @@ server.tool(
   "delete_todo",
   "Permanently delete one or more TODO items. Match by id (preferred) or text.",
   {
+    scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to delete"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const todo = findTodo(state.todos, item);
@@ -349,10 +450,13 @@ server.tool(
         continue;
       }
       state.todos = state.todos.filter((t) => t.id !== todo.id);
+      if (scope === "project" && state.currentTaskId === todo.id) {
+        state.currentTaskId = undefined;
+      }
       results.push(`Deleted: "${todo.text}"`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
@@ -360,6 +464,7 @@ server.tool(
   "edit_todo",
   "Edit the text of one or more TODOs. Match by id (preferred) or text.",
   {
+    scope: scopeSchema,
     items: z
       .array(
         todoRef.extend({
@@ -369,8 +474,8 @@ server.tool(
       .min(1)
       .describe("TODOs to edit"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const todo = findTodo(state.todos, item);
@@ -382,8 +487,8 @@ server.tool(
       todo.text = item.new_text;
       results.push(`Edited: "${oldText}" → "${item.new_text}"`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
@@ -391,6 +496,7 @@ server.tool(
   "move_todo",
   "Move one or more TODOs to a different group. Match by id (preferred) or text.",
   {
+    scope: scopeSchema,
     items: z
       .array(
         todoRef.extend({
@@ -403,8 +509,8 @@ server.tool(
       .min(1)
       .describe("TODOs to move"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const todo = findTodo(state.todos, item);
@@ -412,6 +518,7 @@ server.tool(
         results.push(`FAIL: No TODO matching "${item.id || item.text_match}"`);
         continue;
       }
+      const oldGroupId = todo.groupId;
       let newGroupId = "";
       let targetName = "Ungrouped";
       if (item.group_name) {
@@ -426,50 +533,182 @@ server.tool(
         targetName = group.name;
       }
       const todosInTarget = state.todos.filter(
-        (t) => t.groupId === newGroupId && !t.done && t.id !== todo.id,
+        (t) =>
+          t.groupId === newGroupId &&
+          !t.done &&
+          !t.snoozedUntil &&
+          t.id !== todo.id,
       );
       todo.groupId = newGroupId;
       todo.sortOrder = todosInTarget.length;
+      renumberGroup(state, oldGroupId);
       results.push(`Moved: "${todo.text}" → ${targetName}`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
+  },
+);
+
+server.tool(
+  "snooze_todo",
+  "Snooze one or more active TODOs until a timestamp or ISO date.",
+  {
+    scope: scopeSchema,
+    until: z
+      .union([z.number(), z.string()])
+      .describe("Wake time as epoch milliseconds or parseable date string"),
+    items: z.array(todoRef).min(1).describe("TODOs to snooze"),
+  },
+  async ({ scope = "project", until, items }) => {
+    const timestamp =
+      typeof until === "number" ? until : new Date(until).getTime();
+    if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
+      return textResponse(`Invalid snooze time: ${until}`, true);
+    }
+    const state = readState(scope);
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(
+        state.todos.filter((t) => !t.done),
+        item,
+      );
+      if (!todo) {
+        results.push(
+          `FAIL: No active TODO matching "${item.id || item.text_match}"`,
+        );
+        continue;
+      }
+      todo.snoozedUntil = timestamp;
+      if (scope === "project" && state.currentTaskId === todo.id) {
+        state.currentTaskId = undefined;
+      }
+      renumberGroup(state, todo.groupId);
+      results.push(
+        `Snoozed: "${todo.text}" until ${new Date(timestamp).toLocaleString()}`,
+      );
+    }
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
+  },
+);
+
+server.tool(
+  "unsnooze_todo",
+  "Wake one or more snoozed TODOs now. Match by id (preferred) or text.",
+  {
+    scope: scopeSchema,
+    items: z.array(todoRef).min(1).describe("TODOs to wake"),
+  },
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
+    const results = [];
+    for (const item of items) {
+      const todo = findTodo(
+        state.todos.filter((t) => !t.done && t.snoozedUntil),
+        item,
+      );
+      if (!todo) {
+        results.push(
+          `FAIL: No snoozed TODO matching "${item.id || item.text_match}"`,
+        );
+        continue;
+      }
+      todo.snoozedUntil = undefined;
+      const todosInGroup = state.todos.filter(
+        (t) =>
+          t.groupId === todo.groupId &&
+          !t.done &&
+          !t.snoozedUntil &&
+          t.id !== todo.id,
+      );
+      todo.sortOrder = todosInGroup.length;
+      results.push(`Woke: "${todo.text}"`);
+    }
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
+  },
+);
+
+server.tool(
+  "set_current_task",
+  "Set or clear the current project task. Project scope only.",
+  { id: z.string().nullable().describe("TODO id to pin, or null to clear") },
+  async ({ id }) => {
+    const state = readState("project");
+    if (!id) {
+      state.currentTaskId = undefined;
+      writeState(state, "project");
+      return textResponse("Cleared current task.");
+    }
+    const todo = state.todos.find(
+      (t) =>
+        t.id === id &&
+        !t.done &&
+        (!t.snoozedUntil || t.snoozedUntil <= Date.now()),
+    );
+    if (!todo) {
+      return textResponse(
+        `No active, unsnoozed project TODO found with id "${id}".`,
+        true,
+      );
+    }
+    state.currentTaskId = id;
+    writeState(state, "project");
+    return textResponse(`Current task: "${todo.text}"`);
+  },
+);
+
+server.tool(
+  "get_current_task",
+  "Get the current project task.",
+  {},
+  async () => {
+    const state = readState("project");
+    const todo = state.currentTaskId
+      ? state.todos.find((t) => t.id === state.currentTaskId && !t.done)
+      : undefined;
+    if (!todo) {
+      return textResponse("No current task set.");
+    }
+    return textResponse(`Current task: "${todo.text}" (id: ${todo.id})`);
   },
 );
 
 // ---- Group Tools ----
 
-server.tool("list_groups", "List all TODO groups.", {}, async () => {
-  const state = readState();
-  const groups = state.groups.sort((a, b) => a.sortOrder - b.sortOrder);
-  if (groups.length === 0) {
-    return {
-      content: [{ type: "text", text: "No groups. All TODOs are ungrouped." }],
-    };
-  }
-  const lines = groups.map((g) => {
-    const count = state.todos.filter(
-      (t) => t.groupId === g.id && !t.done,
-    ).length;
-    return `- ${g.name} (${count} active)`;
-  });
-  return { content: [{ type: "text", text: lines.join("\n") }] };
-});
+server.tool(
+  "list_groups",
+  "List all TODO groups.",
+  { scope: scopeSchema },
+  async ({ scope = "project" }) => {
+    const state = readState(scope);
+    const groups = state.groups.sort((a, b) => a.sortOrder - b.sortOrder);
+    if (groups.length === 0) {
+      return textResponse(
+        `No groups in ${scope} scope. All TODOs are ungrouped.`,
+      );
+    }
+    const lines = groups.map((g) => {
+      const count = state.todos.filter(
+        (t) => t.groupId === g.id && !t.done && !t.snoozedUntil,
+      ).length;
+      return `- ${g.name} (${count} active)`;
+    });
+    return textResponse(lines.join("\n"));
+  },
+);
 
 server.tool(
   "add_group",
   "Create a new TODO group.",
-  { name: z.string().describe("Group name") },
-  async ({ name }) => {
-    const state = readState();
+  { scope: scopeSchema, name: z.string().describe("Group name") },
+  async ({ scope = "project", name }) => {
+    const state = readState(scope);
     const exists = state.groups.find(
       (g) => g.name.toLowerCase() === name.toLowerCase(),
     );
     if (exists) {
-      return {
-        content: [{ type: "text", text: `Group "${name}" already exists.` }],
-        isError: true,
-      };
+      return textResponse(`Group "${name}" already exists.`, true);
     }
     state.groups.push({
       id: generateId(),
@@ -477,8 +716,8 @@ server.tool(
       sortOrder: state.groups.length,
       collapsed: false,
     });
-    writeState(state);
-    return { content: [{ type: "text", text: `Created group: "${name}"` }] };
+    writeState(state, scope);
+    return textResponse(`Created group (${scope}): "${name}"`);
   },
 );
 
@@ -486,68 +725,54 @@ server.tool(
   "rename_group",
   "Rename a TODO group.",
   {
+    scope: scopeSchema,
     old_name: z.string().describe("Current group name"),
     new_name: z.string().describe("New group name"),
   },
-  async ({ old_name, new_name }) => {
-    const state = readState();
+  async ({ scope = "project", old_name, new_name }) => {
+    const state = readState(scope);
     const group = state.groups.find(
       (g) => g.name.toLowerCase() === old_name.toLowerCase(),
     );
     if (!group) {
-      return {
-        content: [{ type: "text", text: `Group "${old_name}" not found.` }],
-        isError: true,
-      };
+      return textResponse(`Group "${old_name}" not found.`, true);
     }
     const conflict = state.groups.find(
       (g) =>
         g.name.toLowerCase() === new_name.toLowerCase() && g.id !== group.id,
     );
     if (conflict) {
-      return {
-        content: [
-          { type: "text", text: `Group "${new_name}" already exists.` },
-        ],
-        isError: true,
-      };
+      return textResponse(`Group "${new_name}" already exists.`, true);
     }
     group.name = new_name;
-    writeState(state);
-    return {
-      content: [
-        { type: "text", text: `Renamed group: "${old_name}" → "${new_name}"` },
-      ],
-    };
+    writeState(state, scope);
+    return textResponse(`Renamed group: "${old_name}" → "${new_name}"`);
   },
 );
 
 server.tool(
   "delete_group",
   "Delete a TODO group. TODOs in the group are moved to ungrouped.",
-  { name: z.string().describe("Group name to delete") },
-  async ({ name }) => {
-    const state = readState();
+  { scope: scopeSchema, name: z.string().describe("Group name to delete") },
+  async ({ scope = "project", name }) => {
+    const state = readState(scope);
     const group = state.groups.find(
       (g) => g.name.toLowerCase() === name.toLowerCase(),
     );
     if (!group) {
-      return {
-        content: [{ type: "text", text: `Group "${name}" not found.` }],
-        isError: true,
-      };
+      return textResponse(`Group "${name}" not found.`, true);
     }
     const affected = state.todos.filter((t) => t.groupId === group.id);
     for (const todo of affected) {
       todo.groupId = "";
     }
     state.groups = state.groups.filter((g) => g.id !== group.id);
-    writeState(state);
+    writeState(state, scope);
     const msg =
       affected.length > 0
         ? `Deleted group "${name}". ${affected.length} TODO(s) moved to ungrouped.`
         : `Deleted group "${name}".`;
-    return { content: [{ type: "text", text: msg }] };
+    return textResponse(msg);
   },
 );
 
@@ -567,12 +792,12 @@ const noteRef = z.object({
 server.tool(
   "list_notes",
   "List all notes. Shows a truncated preview of each note.",
-  {},
-  async () => {
-    const state = readState();
+  { scope: scopeSchema },
+  async ({ scope = "project" }) => {
+    const state = readState(scope);
     const notes = (state.notes || []).sort((a, b) => a.sortOrder - b.sortOrder);
     if (notes.length === 0) {
-      return { content: [{ type: "text", text: "No notes." }] };
+      return textResponse(`No notes in ${scope} scope.`);
     }
     const lines = notes.map((n) => {
       const preview =
@@ -580,7 +805,7 @@ server.tool(
       const oneLine = preview.replace(/\n/g, " ");
       return `  - ${oneLine} (id: ${n.id})`;
     });
-    return { content: [{ type: "text", text: lines.join("\n") }] };
+    return textResponse(lines.join("\n"));
   },
 );
 
@@ -588,11 +813,12 @@ server.tool(
   "add_note",
   "Add a new note with markdown content.",
   {
+    scope: scopeSchema,
     content: z.string().describe("The note content (supports markdown)"),
   },
-  async ({ content }) => {
+  async ({ scope = "project", content }) => {
     const normalized = normalizeNewlines(content);
-    const state = readState();
+    const state = readState(scope);
     const newNote = {
       id: generateId(),
       content: normalized,
@@ -600,18 +826,13 @@ server.tool(
       updatedAt: Date.now(),
       sortOrder: (state.notes || []).length,
     };
-    if (!state.notes) {
-      state.notes = [];
-    }
     state.notes.push(newNote);
-    writeState(state);
+    writeState(state, scope);
     const preview =
       content.length > 60 ? content.substring(0, 60) + "..." : content;
-    return {
-      content: [
-        { type: "text", text: `Added note: "${preview}" (id: ${newNote.id})` },
-      ],
-    };
+    return textResponse(
+      `Added note (${scope}): "${preview}" (id: ${newNote.id})`,
+    );
   },
 );
 
@@ -619,6 +840,7 @@ server.tool(
   "edit_note",
   "Edit the content of one or more notes. Match by id (preferred) or content.",
   {
+    scope: scopeSchema,
     items: z
       .array(
         noteRef.extend({
@@ -628,8 +850,8 @@ server.tool(
       .min(1)
       .describe("Notes to edit"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const note = findNote(state.notes || [], item);
@@ -647,8 +869,8 @@ server.tool(
           : item.new_content;
       results.push(`Edited note ${note.id}: "${preview}"`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
@@ -656,10 +878,11 @@ server.tool(
   "delete_note",
   "Permanently delete one or more notes. Match by id (preferred) or content.",
   {
+    scope: scopeSchema,
     items: z.array(noteRef).min(1).describe("Notes to delete"),
   },
-  async ({ items }) => {
-    const state = readState();
+  async ({ scope = "project", items }) => {
+    const state = readState(scope);
     const results = [];
     for (const item of items) {
       const note = findNote(state.notes || [], item);
@@ -676,8 +899,8 @@ server.tool(
           : note.content;
       results.push(`Deleted note: "${preview}"`);
     }
-    writeState(state);
-    return { content: [{ type: "text", text: results.join("\n") }] };
+    writeState(state, scope);
+    return textResponse(results.join("\n"));
   },
 );
 
