@@ -6,6 +6,7 @@ mcp-server.js
 dist/**
 .gitignore
 .claude/**
+.agentlink/**
 tsconfig.json
 mise.toml
 .mcp.json

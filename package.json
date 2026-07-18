@@ -2,7 +2,7 @@
   "name": "mydevnotes",
   "displayName": "My Dev Notes",
   "description": "Workspace-scoped TODO list and scratch pad with groups, archive, markdown notes, and MCP server",
-  "version": "0.9.14",
+  "version": "0.9.16",
   "publisher": "tristancartledge",
   "license": "MIT",
   "repository": {
@@ -111,13 +111,14 @@
     "release:install": "bash scripts/release.sh --install"
   },
   "dependencies": {
+    "@vscode/codicons": "^0.0.45",
     "marked": "^15.0.0",
     "preact": "^10.25.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
-    "@modelcontextprotocol/sdk": "^1.26.0",
     "esbuild": "^0.27.3",
     "typescript": "^5.3.0"
   }

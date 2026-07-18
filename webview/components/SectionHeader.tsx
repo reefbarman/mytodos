@@ -1,4 +1,5 @@
-import { ComponentChildren } from "preact";
+import type { ComponentChildren } from "preact";
+import { Icon } from "./ui/Icon";
 
 interface SectionHeaderProps {
   title: string;
@@ -8,6 +9,7 @@ interface SectionHeaderProps {
   onToggle: () => void;
   draggable?: boolean;
   actions?: ComponentChildren;
+  icon?: "folder" | "note";
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
 }
@@ -20,28 +22,35 @@ export function SectionHeader({
   onToggle,
   draggable,
   actions,
+  icon,
   onDragStart,
   onDragEnd,
 }: SectionHeaderProps) {
   return (
     <div
-      class="group-header"
+      class="section-header"
       draggable={draggable}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
     >
-      <span
-        class="collapse-toggle"
-        onClick={(e) => {
-          e.stopPropagation();
+      <button
+        type="button"
+        class="section-toggle"
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${title}`}
+        aria-expanded={!collapsed}
+        onClick={(event) => {
+          event.stopPropagation();
           onToggle();
         }}
       >
-        {collapsed ? "\u25B6" : "\u25BC"}
+        <Icon name={collapsed ? "chevron-right" : "chevron-down"} size={14} />
+      </button>
+      {icon && <Icon name={icon} className="section-icon" />}
+      <div class="section-title">{titleContent ?? title}</div>
+      <span class="section-count" aria-label={`${count} items`}>
+        {count}
       </span>
-      <span class="group-name">{titleContent ?? title}</span>
-      <span class="group-count">({count})</span>
-      {actions}
+      {actions && <div class="section-actions">{actions}</div>}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef } from "preact/hooks";
 
+import { Icon, type IconName } from "./ui/Icon";
+
 interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
@@ -183,15 +185,20 @@ export function MarkdownEditor({
     return true;
   };
 
-  const toolbarButton = (label: string, title: string, onClick: () => void) => (
+  const toolbarButton = (
+    icon: IconName,
+    title: string,
+    onClick: () => void,
+  ) => (
     <button
       type="button"
       class="markdown-toolbar-btn"
+      aria-label={title}
       title={title}
-      onMouseDown={(e) => e.preventDefault()}
+      onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
     >
-      {label}
+      <Icon name={icon} size={14} />
     </button>
   );
 
@@ -200,38 +207,38 @@ export function MarkdownEditor({
       class={`markdown-editor ${compact ? "markdown-editor-compact" : ""} ${className}`}
     >
       <div class="markdown-toolbar" aria-label="Markdown formatting toolbar">
-        {toolbarButton("B", "Bold", () =>
+        {toolbarButton("bold", "Bold", () =>
           wrapSelection("**", "**", "bold text"),
         )}
-        {toolbarButton("I", "Italic", () =>
+        {toolbarButton("italic", "Italic", () =>
           wrapSelection("*", "*", "italic text"),
         )}
-        {toolbarButton("•", "Bulleted list", () =>
+        {toolbarButton("list-unordered", "Bulleted list", () =>
           transformSelectedLines((line) =>
             line.trim() ? `- ${line.replace(/^[-*]\s+/, "")}` : "- ",
           ),
         )}
-        {toolbarButton("1.", "Numbered list", () =>
+        {toolbarButton("list-ordered", "Numbered list", () =>
           transformSelectedLines((line, index) =>
             line.trim()
               ? `${index + 1}. ${line.replace(/^\d+\.\s+/, "")}`
               : `${index + 1}. `,
           ),
         )}
-        {toolbarButton("☑", "Checklist", () =>
+        {toolbarButton("checklist", "Checklist", () =>
           transformSelectedLines((line) =>
             line.trim()
               ? `- [ ] ${line.replace(/^- \[[ xX]\]\s+/, "")}`
               : "- [ ] ",
           ),
         )}
-        {toolbarButton("❝", "Quote", () =>
+        {toolbarButton("quote", "Quote", () =>
           transformSelectedLines((line) =>
             line.trim() ? `> ${line.replace(/^>\s?/, "")}` : "> ",
           ),
         )}
-        {toolbarButton("{}", "Code", () => wrapSelection("`", "`", "code"))}
-        {toolbarButton("[]", "Link", () =>
+        {toolbarButton("code", "Code", () => wrapSelection("`", "`", "code"))}
+        {toolbarButton("link", "Link", () =>
           wrapSelection("[", "](https://)", "link text"),
         )}
       </div>
@@ -282,10 +289,7 @@ export function MarkdownEditor({
         }}
       />
       <div class="markdown-editor-footer">
-        <span class="markdown-editor-hint">
-          Markdown supported · images shown as attachment placeholders ·
-          ⌘/Ctrl+Enter saves
-        </span>
+        <span class="markdown-editor-hint">⌘/Ctrl+Enter to save</span>
         <div class="markdown-editor-actions">
           <button
             type="button"

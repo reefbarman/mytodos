@@ -1,8 +1,10 @@
+import type { NoteItem as NoteItemType } from "../types";
+import { useState } from "preact/hooks";
+
+import { stripMarkdownImages } from "../markdown";
 import { MarkdownContent } from "./MarkdownContent";
 import { MarkdownEditor } from "./MarkdownEditor";
-import type { NoteItem as NoteItemType } from "../types";
-import { stripMarkdownImages } from "../markdown";
-import { useState } from "preact/hooks";
+import { ActionMenu, type ActionMenuItem } from "./ui/ActionMenu";
 
 interface NoteItemProps {
   note: NoteItemType;
@@ -19,6 +21,7 @@ export function NoteItem({
 }: NoteItemProps) {
   const [editing, setEditing] = useState(!!startInEditMode);
   const [editContent, setEditContent] = useState(note.content);
+  const [copied, setCopied] = useState(false);
 
   const startEdit = () => {
     setEditContent(note.content);
@@ -30,73 +33,63 @@ export function NoteItem({
     if (content && content !== note.content) {
       onEdit(note.id, content);
     } else if (!content) {
-      // Empty note — delete it
       onDelete(note.id);
     }
     setEditing(false);
   };
 
   const cancelEdit = () => {
-    if (!note.content) {
-      // New note with no content — delete
-      onDelete(note.id);
-    }
+    if (!note.content) onDelete(note.id);
     setEditing(false);
   };
 
-  const handleCopy = (e: MouseEvent) => {
-    e.stopPropagation();
-    const btn = e.currentTarget as HTMLButtonElement;
-    navigator.clipboard.writeText(stripMarkdownImages(note.content));
-    btn.innerHTML = "&#10003;";
-    setTimeout(() => {
-      btn.innerHTML = "&#128203;";
-    }, 1200);
+  const copyText = async () => {
+    await navigator.clipboard.writeText(stripMarkdownImages(note.content));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
   };
+
+  const menuItems: ActionMenuItem[] = [
+    { label: "Edit", icon: "edit", onSelect: startEdit },
+    {
+      label: copied ? "Copied" : "Copy text",
+      icon: copied ? "check" : "copy",
+      onSelect: () => void copyText(),
+    },
+    {
+      label: "Delete",
+      icon: "trash",
+      danger: true,
+      onSelect: () => onDelete(note.id),
+    },
+  ];
 
   if (editing) {
     return (
-      <div class="note-item note-editing">
+      <article class="note-item note-editing">
         <MarkdownEditor
           value={editContent}
           onChange={setEditContent}
           onCommit={commitEdit}
           onCancel={cancelEdit}
-          placeholder="Write markdown here... Paste or drop screenshots/images."
+          placeholder="Write a note…"
           autoFocus
-          commitLabel="Save note"
+          commitLabel="Save"
         />
-      </div>
+      </article>
     );
   }
 
   return (
-    <div class="note-item">
+    <article class="note-item">
       <MarkdownContent
         content={note.content}
         className="note-content"
         onDblClick={startEdit}
       />
-      <div class="note-actions">
-        <button
-          class="note-action-btn"
-          title="Edit"
-          onClick={startEdit}
-          dangerouslySetInnerHTML={{ __html: "&#9998;" }}
-        />
-        <button
-          class="note-action-btn note-copy-btn"
-          title="Copy text without images"
-          onClick={handleCopy}
-          dangerouslySetInnerHTML={{ __html: "&#128203;" }}
-        />
-        <button
-          class="note-action-btn note-delete-btn"
-          title="Delete"
-          onClick={() => onDelete(note.id)}
-          dangerouslySetInnerHTML={{ __html: "&times;" }}
-        />
+      <div class="item-actions note-actions">
+        <ActionMenu items={menuItems} label="Note actions" />
       </div>
-    </div>
+    </article>
   );
 }

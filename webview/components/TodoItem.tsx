@@ -1,9 +1,12 @@
 import type { Scope, TodoItem as TodoItemType } from "../types";
+import { useState } from "preact/hooks";
 
+import { stripMarkdownImages } from "../markdown";
 import { MarkdownContent } from "./MarkdownContent";
 import { MarkdownEditor } from "./MarkdownEditor";
-import { stripMarkdownImages } from "../markdown";
-import { useState } from "preact/hooks";
+import { SnoozeMenu } from "./SnoozeMenu";
+import { ActionMenu, type ActionMenuItem } from "./ui/ActionMenu";
+import { IconButton } from "./ui/IconButton";
 
 interface TodoItemProps {
   todo: TodoItemType;
@@ -14,22 +17,6 @@ interface TodoItemProps {
   onDelete: (id: string) => void;
   onSnooze?: (id: string, until: number) => void;
   onSetCurrentTask?: (id: string | null) => void;
-}
-
-function tomorrowAt(hour: number): number {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  date.setHours(hour, 0, 0, 0);
-  return date.getTime();
-}
-
-function nextMondayAt(hour: number): number {
-  const date = new Date();
-  const day = date.getDay();
-  const daysUntilMonday = (8 - day) % 7 || 7;
-  date.setDate(date.getDate() + daysUntilMonday);
-  date.setHours(hour, 0, 0, 0);
-  return date.getTime();
 }
 
 export function TodoItem({
@@ -44,7 +31,7 @@ export function TodoItem({
 }: TodoItemProps) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(todo.text);
-  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
   const isCurrentTask = currentTaskId === todo.id;
 
   const startEdit = () => {
@@ -60,35 +47,26 @@ export function TodoItem({
     setEditing(false);
   };
 
-  const cancelEdit = () => {
-    setEditing(false);
+  const copyText = async () => {
+    await navigator.clipboard.writeText(stripMarkdownImages(todo.text));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
   };
 
-  const handleCopy = (e: MouseEvent) => {
-    e.stopPropagation();
-    const btn = e.currentTarget as HTMLButtonElement;
-    navigator.clipboard.writeText(stripMarkdownImages(todo.text));
-    btn.innerHTML = "&#10003;";
-    setTimeout(() => {
-      btn.innerHTML = "&#128203;";
-    }, 1200);
-  };
-
-  const snoozeUntil = (until: number) => {
-    if (until > Date.now()) {
-      onSnooze?.(todo.id, until);
-    }
-    setSnoozeOpen(false);
-  };
-
-  const handleCustomSnooze = () => {
-    const value = prompt("Snooze until (YYYY-MM-DD HH:mm)");
-    if (!value) return;
-    const timestamp = new Date(value.replace(" ", "T")).getTime();
-    if (Number.isFinite(timestamp) && timestamp > Date.now()) {
-      snoozeUntil(timestamp);
-    }
-  };
+  const moreItems: ActionMenuItem[] = [
+    { label: "Edit", icon: "edit", onSelect: startEdit },
+    {
+      label: copied ? "Copied" : "Copy text",
+      icon: copied ? "check" : "copy",
+      onSelect: () => void copyText(),
+    },
+    {
+      label: "Delete",
+      icon: "trash",
+      danger: true,
+      onSelect: () => onDelete(todo.id),
+    },
+  ];
 
   return (
     <div
@@ -96,28 +74,29 @@ export function TodoItem({
       data-todo-id={todo.id}
       data-group-id={todo.groupId}
       draggable={!editing}
-      onDragStart={(e) => {
+      onDragStart={(event) => {
         if (editing) return;
-        e.stopPropagation();
-        const ev = e as DragEvent;
+        event.stopPropagation();
+        const dragEvent = event as DragEvent;
         (window as any).__draggedTodoId = todo.id;
         (window as any).__draggedGroupId = null;
-        ev.dataTransfer!.effectAllowed = "move";
-        ev.dataTransfer!.setData("text/plain", todo.id);
-        (e.currentTarget as HTMLElement).classList.add("dragging");
+        dragEvent.dataTransfer!.effectAllowed = "move";
+        dragEvent.dataTransfer!.setData("text/plain", todo.id);
+        (event.currentTarget as HTMLElement).classList.add("dragging");
       }}
-      onDragEnd={(e) => {
+      onDragEnd={(event) => {
         (window as any).__draggedTodoId = null;
-        (e.currentTarget as HTMLElement).classList.remove("dragging");
+        (event.currentTarget as HTMLElement).classList.remove("dragging");
         document
           .querySelectorAll(".drop-indicator")
-          .forEach((ind) => ind.remove());
+          .forEach((indicator) => indicator.remove());
       }}
     >
       <input
         type="checkbox"
         class="todo-checkbox"
         checked={todo.done}
+        aria-label={`Complete ${todo.text}`}
         onChange={() => onToggle(todo.id)}
       />
       <div class="todo-body">
@@ -126,8 +105,8 @@ export function TodoItem({
             value={editText}
             onChange={setEditText}
             onCommit={commitEdit}
-            onCancel={cancelEdit}
-            placeholder="Edit TODO... Paste/drop screenshots or use Markdown."
+            onCancel={() => setEditing(false)}
+            placeholder="Describe the task…"
             className="todo-edit-input"
             autoFocus
             commitLabel="Save"
@@ -141,73 +120,26 @@ export function TodoItem({
           />
         )}
         {!editing && (
-          <div class="todo-actions-row">
+          <div class="item-actions todo-actions-row">
             {scope === "project" &&
               onSetCurrentTask &&
               !todo.done &&
               !todo.snoozedUntil && (
-                <button
-                  class="todo-action-btn todo-pin-btn"
-                  title={
+                <IconButton
+                  icon="pin"
+                  label={
                     isCurrentTask ? "Clear current task" : "Set as current task"
                   }
+                  active={isCurrentTask}
                   onClick={() =>
                     onSetCurrentTask(isCurrentTask ? null : todo.id)
                   }
-                  dangerouslySetInnerHTML={{
-                    __html: isCurrentTask ? "&#128204;" : "&#128205;",
-                  }}
                 />
               )}
             {onSnooze && !todo.done && !todo.snoozedUntil && (
-              <div class="todo-snooze-menu">
-                <button
-                  class="todo-action-btn todo-snooze-btn"
-                  title="Snooze"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSnoozeOpen(!snoozeOpen);
-                  }}
-                  dangerouslySetInnerHTML={{ __html: "&#128337;" }}
-                />
-                {snoozeOpen && (
-                  <div
-                    class="snooze-popover"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      onClick={() =>
-                        snoozeUntil(Date.now() + 4 * 60 * 60 * 1000)
-                      }
-                    >
-                      Later today
-                      <span>+4h</span>
-                    </button>
-                    <button onClick={() => snoozeUntil(tomorrowAt(9))}>
-                      Tomorrow
-                      <span>9am</span>
-                    </button>
-                    <button onClick={() => snoozeUntil(nextMondayAt(9))}>
-                      Next week
-                      <span>Mon 9am</span>
-                    </button>
-                    <button onClick={handleCustomSnooze}>Custom…</button>
-                  </div>
-                )}
-              </div>
+              <SnoozeMenu onSnooze={(until) => onSnooze(todo.id, until)} />
             )}
-            <button
-              class="todo-action-btn todo-copy-btn"
-              title="Copy text without images"
-              onClick={handleCopy}
-              dangerouslySetInnerHTML={{ __html: "&#128203;" }}
-            />
-            <button
-              class="todo-action-btn todo-delete-btn"
-              title="Delete"
-              onClick={() => onDelete(todo.id)}
-              dangerouslySetInnerHTML={{ __html: "&times;" }}
-            />
+            <ActionMenu items={moreItems} label="Task actions" />
           </div>
         )}
       </div>

@@ -1,16 +1,19 @@
 import { MarkdownEditor } from "./MarkdownEditor";
+import { QuickAction } from "./ui/QuickAction";
 import { useState } from "preact/hooks";
 
 interface InlineAddInputProps {
   groupId: string;
   onAdd: (text: string, groupId: string) => void;
   label?: string;
+  primary?: boolean;
 }
 
 export function InlineAddInput({
   groupId,
   onAdd,
-  label = "+ Add TODO",
+  label = "Add task",
+  primary = false,
 }: InlineAddInputProps) {
   const [showInput, setShowInput] = useState(false);
   const [text, setText] = useState("");
@@ -51,8 +54,10 @@ export function InlineAddInput({
   }
 
   return (
-    <button class="inline-add-btn" onClick={openInput}>
-      {label}
-    </button>
+    <QuickAction
+      label={label.replace(/^\+\s*/, "")}
+      className={primary ? "primary-task-add" : ""}
+      onClick={openInput}
+    />
   );
 }

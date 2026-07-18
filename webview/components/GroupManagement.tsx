@@ -1,31 +1,60 @@
-import { useState, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from "preact/hooks";
+
+import { IconButton } from "./ui/IconButton";
+import { QuickAction } from "./ui/QuickAction";
 
 interface GroupManagementProps {
   onAddGroup: (name: string) => void;
 }
 
 export function GroupManagement({ onAddGroup }: GroupManagementProps) {
-  const [name, setName] = useState('');
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  const close = () => {
+    setOpen(false);
+    setName("");
+  };
 
   const submit = () => {
     const trimmed = name.trim();
     if (!trimmed) return;
     onAddGroup(trimmed);
-    setName('');
+    close();
   };
 
+  if (!open) {
+    return (
+      <QuickAction
+        label="New group"
+        icon="folder"
+        className="group-quick-action"
+        onClick={() => setOpen(true)}
+      />
+    );
+  }
+
   return (
-    <div id="group-management">
+    <div class="quick-input-row group-quick-input">
       <input
         ref={inputRef}
         type="text"
-        placeholder="New group name..."
+        aria-label="Group name"
+        placeholder="Group name"
         value={name}
-        onInput={(e) => setName((e.target as HTMLInputElement).value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        onInput={(event) => setName((event.target as HTMLInputElement).value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") submit();
+          if (event.key === "Escape") close();
+        }}
       />
-      <button id="add-group-btn" onClick={submit}>+ Group</button>
+      <IconButton icon="check" label="Create group" onClick={submit} />
+      <IconButton icon="close" label="Cancel" onClick={close} />
     </div>
   );
 }

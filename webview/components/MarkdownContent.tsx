@@ -223,20 +223,20 @@ export function MarkdownContent({
 
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "markdown-image-copy-btn";
+      button.className = "markdown-image-copy-btn codicon codicon-copy";
       button.title = "Copy image";
-      button.textContent = "📋";
       button.addEventListener("click", async (event) => {
         event.stopPropagation();
         try {
           await copyImage(image);
-          button.textContent = "✓";
+          button.classList.replace("codicon-copy", "codicon-check");
         } catch {
-          button.textContent = "✕";
+          button.classList.replace("codicon-copy", "codicon-error");
           button.title = "Image copy failed";
         }
         window.setTimeout(() => {
-          button.textContent = "📋";
+          button.classList.remove("codicon-check", "codicon-error");
+          button.classList.add("codicon-copy");
           button.title = "Copy image";
         }, 1200);
       });

@@ -1,10 +1,11 @@
 import type { Scope, TodoGroup, TodoItem as TodoItemType } from "../types";
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import { setupDropZone } from "../hooks/useDragAndDrop";
 import { InlineAddInput } from "./InlineAddInput";
 import { SectionHeader } from "./SectionHeader";
 import { TodoItem } from "./TodoItem";
-import { setupDropZone } from "../hooks/useDragAndDrop";
+import { ActionMenu, type ActionMenuItem } from "./ui/ActionMenu";
 
 interface GroupSectionProps {
   group: TodoGroup;
@@ -42,7 +43,7 @@ export function GroupSection({
   onReorderGroup,
 }: GroupSectionProps) {
   const listRef = useRef<HTMLDivElement>(null);
-  const sectionRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [renaming, setRenaming] = useState(false);
   const [groupName, setGroupName] = useState(group.name);
@@ -53,9 +54,7 @@ export function GroupSection({
     }
   }, [group.collapsed]);
 
-  useEffect(() => {
-    setGroupName(group.name);
-  }, [group.name]);
+  useEffect(() => setGroupName(group.name), [group.name]);
 
   useEffect(() => {
     if (!renaming) return;
@@ -63,30 +62,29 @@ export function GroupSection({
     inputRef.current?.select();
   }, [renaming]);
 
-  // Group drag-and-drop for reordering groups
   useEffect(() => {
     const section = sectionRef.current;
     if (!section) return;
 
-    const handleDragOver = (e: DragEvent) => {
+    const handleDragOver = (event: DragEvent) => {
       if (
         !(window as any).__draggedGroupId ||
         (window as any).__draggedGroupId === group.id
-      )
+      ) {
         return;
-      e.preventDefault();
-      e.dataTransfer!.dropEffect = "move";
+      }
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = "move";
     };
 
-    const handleDrop = (e: DragEvent) => {
+    const handleDrop = (event: DragEvent) => {
       const draggedGroupId = (window as any).__draggedGroupId;
       if (!draggedGroupId) return;
-      e.preventDefault();
+      event.preventDefault();
       const container = document.getElementById("groups-container");
       if (!container) return;
-      const sections = [...container.querySelectorAll(".group-section")];
-      const targetIndex = sections.indexOf(section);
-      onReorderGroup(draggedGroupId, targetIndex);
+      const sections = [...container.querySelectorAll(".workspace-group")];
+      onReorderGroup(draggedGroupId, sections.indexOf(section));
     };
 
     section.addEventListener("dragover", handleDragOver);
@@ -97,55 +95,30 @@ export function GroupSection({
     };
   }, [group.id]);
 
-  const sorted = todos.sort((a, b) => a.sortOrder - b.sortOrder);
-
-  const startRename = (e: MouseEvent) => {
-    e.stopPropagation();
-    setGroupName(group.name);
-    setRenaming(true);
-  };
+  const sorted = [...todos].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const commitRename = () => {
     const trimmed = groupName.trim();
-    if (trimmed && trimmed !== group.name) {
-      onRenameGroup(group.id, trimmed);
-    } else {
-      setGroupName(group.name);
-    }
+    if (trimmed && trimmed !== group.name) onRenameGroup(group.id, trimmed);
+    else setGroupName(group.name);
     setRenaming(false);
   };
 
-  const cancelRename = () => {
-    setGroupName(group.name);
-    setRenaming(false);
-  };
-
-  const handleDelete = (e: MouseEvent) => {
-    e.stopPropagation();
-    onDeleteGroup(group.id);
-  };
-
-  const actions = (
-    <>
-      <button
-        class="group-action-btn"
-        title="Rename"
-        onClick={startRename}
-        dangerouslySetInnerHTML={{ __html: "&#9998;" }}
-      />
-      <button
-        class="group-action-btn"
-        title="Delete group (TODOs move to Ungrouped)"
-        onClick={handleDelete}
-        dangerouslySetInnerHTML={{ __html: "&times;" }}
-      />
-    </>
-  );
+  const menuItems: ActionMenuItem[] = [
+    { label: "Rename", icon: "edit", onSelect: () => setRenaming(true) },
+    {
+      label: "Delete group",
+      icon: "trash",
+      danger: true,
+      onSelect: () => onDeleteGroup(group.id),
+    },
+  ];
 
   return (
-    <div ref={sectionRef} class="group-section" data-group-id={group.id}>
+    <section ref={sectionRef} class="workspace-group" data-group-id={group.id}>
       <SectionHeader
         title={group.name}
+        icon="folder"
         count={sorted.length}
         collapsed={group.collapsed}
         onToggle={() => onToggleCollapse(group.id)}
@@ -154,34 +127,32 @@ export function GroupSection({
             <input
               ref={inputRef}
               type="text"
-              class="group-name-edit"
+              class="section-title-input"
               value={groupName}
-              onClick={(e) => e.stopPropagation()}
-              onInput={(e) =>
-                setGroupName((e.target as HTMLInputElement).value)
+              onClick={(event) => event.stopPropagation()}
+              onInput={(event) =>
+                setGroupName((event.target as HTMLInputElement).value)
               }
               onBlur={commitRename}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  cancelRename();
-                  return;
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setGroupName(group.name);
+                  setRenaming(false);
                 }
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitRename();
-                }
+                if (event.key === "Enter") commitRename();
               }}
             />
           ) : undefined
         }
         draggable={!renaming}
-        actions={actions}
-        onDragStart={(e) => {
+        actions={
+          <ActionMenu items={menuItems} label={`${group.name} actions`} />
+        }
+        onDragStart={(event) => {
           (window as any).__draggedGroupId = group.id;
           (window as any).__draggedTodoId = null;
-          e.dataTransfer!.effectAllowed = "move";
-          e.dataTransfer!.setData("text/plain", group.id);
+          event.dataTransfer!.effectAllowed = "move";
+          event.dataTransfer!.setData("text/plain", group.id);
           sectionRef.current?.classList.add("group-dragging");
         }}
         onDragEnd={() => {
@@ -192,7 +163,7 @@ export function GroupSection({
       {!group.collapsed && (
         <div
           ref={listRef}
-          class="group-todo-list todo-list"
+          class="todo-list group-todo-list"
           data-group-id={group.id}
         >
           {sorted.map((todo) => (
@@ -208,9 +179,9 @@ export function GroupSection({
               onSetCurrentTask={onSetCurrentTask}
             />
           ))}
-          <InlineAddInput groupId={group.id} onAdd={onAdd} />
+          <InlineAddInput groupId={group.id} onAdd={onAdd} label="Add task" />
         </div>
       )}
-    </div>
+    </section>
   );
 }

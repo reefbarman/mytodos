@@ -57,7 +57,7 @@ export function TodoSection({
           onSetCurrentTask={onSetCurrentTask}
         />
       ))}
-      <InlineAddInput groupId="" onAdd={onAdd} />
+      <InlineAddInput groupId="" onAdd={onAdd} primary />
     </div>
   );
 }

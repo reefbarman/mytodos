@@ -9,7 +9,7 @@ usage() {
   echo "  --major    Bump major version"
   echo "  --minor    Bump minor version"
   echo "  --patch    Bump patch version (default)"
-  echo "  --install  Install the VSIX into VS Code after building"
+  echo "  --install  Install the VSIX into all VS Code profiles after building"
   exit 1
 }
 
@@ -52,7 +52,31 @@ fi
 echo "Built $VSIX"
 
 if $INSTALL; then
-  echo "Installing $VSIX..."
+  echo "Installing $VSIX to all profiles..."
+
+  # Install to the default profile first.
+  echo "Installing to [Default] profile..."
   code --install-extension "$VSIX" --force
-  echo "Installed $PACKAGE_NAME@$NEW_VERSION. Reload VS Code to activate the updated extension."
+
+  # Profile directory names are opaque IDs. Human-readable names accepted by
+  # `code --profile` live in globalStorage/storage.json under userDataProfiles.
+  USER_DIR=""
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    USER_DIR="$HOME/Library/Application Support/Code/User"
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    USER_DIR="$HOME/.config/Code/User"
+  fi
+
+  STORAGE_JSON="$USER_DIR/globalStorage/storage.json"
+  if [[ -n "$USER_DIR" && -f "$STORAGE_JSON" ]]; then
+    node -e '
+      const profiles = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).userDataProfiles ?? [];
+      for (const profile of profiles) if (profile.name) console.log(profile.name);
+    ' "$STORAGE_JSON" | while IFS= read -r profile; do
+      echo "Installing to [$profile] profile..."
+      code --profile "$profile" --install-extension "$VSIX" --force
+    done
+  fi
+
+  echo "Installed $PACKAGE_NAME@$NEW_VERSION across all profiles. Reload VS Code to activate."
 fi

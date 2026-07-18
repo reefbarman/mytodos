@@ -188,6 +188,14 @@ export class ViewProvider implements vscode.WebviewViewProvider {
     const styleVSCodeUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, "media", "vscode.css"),
     );
+    const styleCodiconsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(
+        this.extensionUri,
+        "media",
+        "codicons",
+        "codicon.css",
+      ),
+    );
     const styleMainUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, "media", "main.css"),
     );
@@ -198,10 +206,11 @@ export class ViewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; img-src ${webview.cspSource} data: blob:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+    content="default-src 'none'; img-src ${webview.cspSource} data: blob:; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${styleResetUri}" rel="stylesheet">
   <link href="${styleVSCodeUri}" rel="stylesheet">
+  <link href="${styleCodiconsUri}" rel="stylesheet">
   <link href="${styleMainUri}" rel="stylesheet">
   <title>My Dev Notes</title>
 </head>
