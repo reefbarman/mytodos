@@ -5,6 +5,7 @@ import { stripMarkdownImages } from "../markdown";
 import { MarkdownContent } from "./MarkdownContent";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { ActionMenu, type ActionMenuItem } from "./ui/ActionMenu";
+import { IconButton } from "./ui/IconButton";
 
 interface NoteItemProps {
   note: NoteItemType;
@@ -52,11 +53,6 @@ export function NoteItem({
   const menuItems: ActionMenuItem[] = [
     { label: "Edit", icon: "edit", onSelect: startEdit },
     {
-      label: copied ? "Copied" : "Copy text",
-      icon: copied ? "check" : "copy",
-      onSelect: () => void copyText(),
-    },
-    {
       label: "Delete",
       icon: "trash",
       danger: true,
@@ -89,6 +85,12 @@ export function NoteItem({
       />
       <div class="item-actions note-actions">
         <ActionMenu items={menuItems} label="Note actions" />
+        <IconButton
+          icon={copied ? "check" : "copy"}
+          label={copied ? "Note text copied" : "Copy note text without images"}
+          class="primary-copy-action"
+          onClick={() => void copyText()}
+        />
       </div>
     </article>
   );

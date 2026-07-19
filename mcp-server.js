@@ -211,16 +211,22 @@ function textResponse(text, isError = false) {
 
 // ---- Server setup ----
 
-const server = new McpServer({
-  name: "mydevnotes",
-  version,
-});
+const server = new McpServer(
+  {
+    name: "mydevnotes",
+    version,
+  },
+  {
+    instructions:
+      "My Dev Notes is the user's persistent TODO/task-list and notes store, with project-scoped and global data. When the user refers to 'my TODOs', 'my task list', 'my dev notes', 'my notes', or asks to list, add, update, complete, snooze, move, or delete them, use this server's tools unless the context clearly identifies source-code TODO comments or another task tracker. Project scope is the default and uses the current workspace; global scope is visible across workspaces. List items first when an exact id is not already known, then prefer ids for updates.",
+  },
+);
 
 // ---- TODO Tools ----
 
 server.tool(
   "list_todos",
-  "List active (not completed) TODOs. Optionally filter by group name, tag, and scope.",
+  "List the user's active TODOs/tasks stored in My Dev Notes. Optionally filter by group, tag, and project/global scope.",
   {
     scope: scopeSchema,
     group_name: z.string().optional().describe("Filter by group name"),
@@ -268,7 +274,7 @@ server.tool(
 
 server.tool(
   "list_completed_todos",
-  "List completed (done) TODOs. Optionally filter by group name and scope.",
+  "List the user's completed TODOs/tasks stored in My Dev Notes. Optionally filter by group and project/global scope.",
   {
     scope: scopeSchema,
     group_name: z.string().optional().describe("Filter by group name"),
@@ -308,7 +314,7 @@ const todoRef = z.object({
 
 server.tool(
   "add_todo",
-  "Add one or more TODO items.",
+  "Add one or more TODOs/tasks to the user's My Dev Notes task list.",
   {
     scope: scopeSchema,
     items: z
@@ -362,7 +368,7 @@ server.tool(
 
 server.tool(
   "complete_todo",
-  "Mark one or more TODOs as completed. Match by id (preferred) or text.",
+  "Complete one or more of the user's stored TODOs/tasks. Match by id (preferred) or text.",
   {
     scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to complete"),
@@ -396,7 +402,7 @@ server.tool(
 
 server.tool(
   "uncomplete_todo",
-  "Restore one or more completed TODOs back to active. Match by id (preferred) or text.",
+  "Restore one or more of the user's completed TODOs/tasks to active. Match by id (preferred) or text.",
   {
     scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to restore"),
@@ -435,7 +441,7 @@ server.tool(
 
 server.tool(
   "delete_todo",
-  "Permanently delete one or more TODO items. Match by id (preferred) or text.",
+  "Permanently delete one or more of the user's stored TODOs/tasks. Match by id (preferred) or text.",
   {
     scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to delete"),
@@ -462,7 +468,7 @@ server.tool(
 
 server.tool(
   "edit_todo",
-  "Edit the text of one or more TODOs. Match by id (preferred) or text.",
+  "Update or edit one or more of the user's stored TODOs/tasks. Match by id (preferred) or text.",
   {
     scope: scopeSchema,
     items: z
@@ -494,7 +500,7 @@ server.tool(
 
 server.tool(
   "move_todo",
-  "Move one or more TODOs to a different group. Match by id (preferred) or text.",
+  "Move one or more of the user's stored TODOs/tasks to a different group. Match by id (preferred) or text.",
   {
     scope: scopeSchema,
     items: z
@@ -551,7 +557,7 @@ server.tool(
 
 server.tool(
   "snooze_todo",
-  "Snooze one or more active TODOs until a timestamp or ISO date.",
+  "Snooze one or more of the user's active TODOs/tasks until a timestamp or ISO date.",
   {
     scope: scopeSchema,
     until: z
@@ -594,7 +600,7 @@ server.tool(
 
 server.tool(
   "unsnooze_todo",
-  "Wake one or more snoozed TODOs now. Match by id (preferred) or text.",
+  "Wake one or more of the user's snoozed TODOs/tasks now. Match by id (preferred) or text.",
   {
     scope: scopeSchema,
     items: z.array(todoRef).min(1).describe("TODOs to wake"),
@@ -631,7 +637,7 @@ server.tool(
 
 server.tool(
   "set_current_task",
-  "Set or clear the current project task. Project scope only.",
+  "Set or clear the user's current My Dev Notes task. Project scope only.",
   { id: z.string().nullable().describe("TODO id to pin, or null to clear") },
   async ({ id }) => {
     const state = readState("project");
@@ -660,7 +666,7 @@ server.tool(
 
 server.tool(
   "get_current_task",
-  "Get the current project task.",
+  "Get the user's current My Dev Notes task for this project.",
   {},
   async () => {
     const state = readState("project");
@@ -678,7 +684,7 @@ server.tool(
 
 server.tool(
   "list_groups",
-  "List all TODO groups.",
+  "List the groups organizing the user's stored My Dev Notes TODOs/tasks.",
   { scope: scopeSchema },
   async ({ scope = "project" }) => {
     const state = readState(scope);
@@ -700,7 +706,7 @@ server.tool(
 
 server.tool(
   "add_group",
-  "Create a new TODO group.",
+  "Create a group for organizing the user's stored My Dev Notes TODOs/tasks.",
   { scope: scopeSchema, name: z.string().describe("Group name") },
   async ({ scope = "project", name }) => {
     const state = readState(scope);
@@ -723,7 +729,7 @@ server.tool(
 
 server.tool(
   "rename_group",
-  "Rename a TODO group.",
+  "Rename a group that organizes the user's stored My Dev Notes TODOs/tasks.",
   {
     scope: scopeSchema,
     old_name: z.string().describe("Current group name"),
@@ -752,7 +758,7 @@ server.tool(
 
 server.tool(
   "delete_group",
-  "Delete a TODO group. TODOs in the group are moved to ungrouped.",
+  "Delete a My Dev Notes TODO/task group; its TODOs are moved to ungrouped.",
   { scope: scopeSchema, name: z.string().describe("Group name to delete") },
   async ({ scope = "project", name }) => {
     const state = readState(scope);
@@ -791,7 +797,7 @@ const noteRef = z.object({
 
 server.tool(
   "list_notes",
-  "List all notes. Shows a truncated preview of each note.",
+  "List the user's notes/scratch notes stored in My Dev Notes, with a preview of each note.",
   { scope: scopeSchema },
   async ({ scope = "project" }) => {
     const state = readState(scope);
@@ -811,7 +817,7 @@ server.tool(
 
 server.tool(
   "add_note",
-  "Add a new note with markdown content.",
+  "Add a note or temporary scratch note to the user's My Dev Notes store. Supports markdown.",
   {
     scope: scopeSchema,
     content: z.string().describe("The note content (supports markdown)"),
@@ -838,7 +844,7 @@ server.tool(
 
 server.tool(
   "edit_note",
-  "Edit the content of one or more notes. Match by id (preferred) or content.",
+  "Update or edit one or more of the user's notes stored in My Dev Notes. Match by id (preferred) or content.",
   {
     scope: scopeSchema,
     items: z
@@ -876,7 +882,7 @@ server.tool(
 
 server.tool(
   "delete_note",
-  "Permanently delete one or more notes. Match by id (preferred) or content.",
+  "Permanently delete one or more of the user's notes stored in My Dev Notes. Match by id (preferred) or content.",
   {
     scope: scopeSchema,
     items: z.array(noteRef).min(1).describe("Notes to delete"),

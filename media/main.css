@@ -586,13 +586,16 @@ textarea:focus-visible {
   min-height: var(--mdn-action-size);
   justify-content: flex-end;
   margin-top: 2px;
+}
+
+.todo-actions-row > :not(.primary-copy-action) {
   opacity: 0;
   transition: opacity 100ms ease;
 }
 
-.todo-item:hover .todo-actions-row,
-.todo-item:focus-within .todo-actions-row,
-.todo-item.current-task .todo-actions-row {
+.todo-item:hover .todo-actions-row > *,
+.todo-item:focus-within .todo-actions-row > *,
+.todo-item.current-task .todo-actions-row > * {
   opacity: 1;
 }
 
@@ -730,12 +733,15 @@ textarea:focus-visible {
   min-height: var(--mdn-action-size);
   justify-content: flex-end;
   margin-top: 3px;
+}
+
+.note-actions > :not(.primary-copy-action) {
   opacity: 0;
   transition: opacity 100ms ease;
 }
 
-.note-item:hover .note-actions,
-.note-item:focus-within .note-actions {
+.note-item:hover .note-actions > *,
+.note-item:focus-within .note-actions > * {
   opacity: 1;
 }
 
@@ -1004,12 +1010,14 @@ textarea:focus-visible {
   border-radius: var(--mdn-radius-sm);
   background: color-mix(in srgb, var(--mdn-surface-raised) 92%, transparent);
   color: var(--mdn-fg);
-  opacity: 0;
-  transition: opacity 100ms ease;
+  opacity: 0.82;
+  transition: opacity 100ms ease, background 100ms ease;
 }
 
 .markdown-image-wrapper:hover .markdown-image-copy-btn,
+.markdown-image-copy-btn:hover,
 .markdown-image-copy-btn:focus-visible {
+  background: var(--mdn-surface-raised);
   opacity: 1;
 }
 

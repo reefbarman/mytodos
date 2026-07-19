@@ -56,11 +56,6 @@ export function TodoItem({
   const moreItems: ActionMenuItem[] = [
     { label: "Edit", icon: "edit", onSelect: startEdit },
     {
-      label: copied ? "Copied" : "Copy text",
-      icon: copied ? "check" : "copy",
-      onSelect: () => void copyText(),
-    },
-    {
       label: "Delete",
       icon: "trash",
       danger: true,
@@ -140,6 +135,14 @@ export function TodoItem({
               <SnoozeMenu onSnooze={(until) => onSnooze(todo.id, until)} />
             )}
             <ActionMenu items={moreItems} label="Task actions" />
+            <IconButton
+              icon={copied ? "check" : "copy"}
+              label={
+                copied ? "Task text copied" : "Copy task text without images"
+              }
+              class="primary-copy-action"
+              onClick={() => void copyText()}
+            />
           </div>
         )}
       </div>

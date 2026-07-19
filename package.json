@@ -2,7 +2,7 @@
   "name": "mydevnotes",
   "displayName": "My Dev Notes",
   "description": "Workspace-scoped TODO list and scratch pad with groups, archive, markdown notes, and MCP server",
-  "version": "0.9.16",
+  "version": "0.9.18",
   "publisher": "tristancartledge",
   "license": "MIT",
   "repository": {

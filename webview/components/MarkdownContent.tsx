@@ -225,19 +225,24 @@ export function MarkdownContent({
       button.type = "button";
       button.className = "markdown-image-copy-btn codicon codicon-copy";
       button.title = "Copy image";
+      button.setAttribute("aria-label", "Copy image");
       button.addEventListener("click", async (event) => {
         event.stopPropagation();
         try {
           await copyImage(image);
           button.classList.replace("codicon-copy", "codicon-check");
+          button.title = "Image copied";
+          button.setAttribute("aria-label", "Image copied");
         } catch {
           button.classList.replace("codicon-copy", "codicon-error");
           button.title = "Image copy failed";
+          button.setAttribute("aria-label", "Image copy failed");
         }
         window.setTimeout(() => {
           button.classList.remove("codicon-check", "codicon-error");
           button.classList.add("codicon-copy");
           button.title = "Copy image";
+          button.setAttribute("aria-label", "Copy image");
         }, 1200);
       });
 
