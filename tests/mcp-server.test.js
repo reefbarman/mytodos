@@ -3,11 +3,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { pathToFileURL } = require("node:url");
 
 const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
 const {
   StdioClientTransport,
 } = require("@modelcontextprotocol/sdk/client/stdio.js");
+const {
+  ListRootsRequestSchema,
+} = require("@modelcontextprotocol/sdk/types.js");
 
 const PNG_DATA =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -113,11 +117,21 @@ test("MCP read tools return images and edits preserve attachment placeholders", 
     }),
   );
 
-  const client = new Client({ name: "mydevnotes-test", version: "1.0.0" });
+  const client = new Client(
+    { name: "mydevnotes-test", version: "1.0.0" },
+    { capabilities: { roots: {} } },
+  );
+  let listRootsCalls = 0;
+  client.setRequestHandler(ListRootsRequestSchema, async () => {
+    listRootsCalls += 1;
+    return {
+      roots: [{ uri: pathToFileURL(workspace).href, name: "test workspace" }],
+    };
+  });
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [path.resolve(__dirname, "..", "mcp-server.js")],
-    cwd: workspace,
+    cwd: tempRoot,
     env: { ...process.env, HOME: tempHome, USERPROFILE: tempHome },
     stderr: "inherit",
   });
@@ -260,4 +274,197 @@ test("MCP read tools return images and edits preserve attachment placeholders", 
     storedNote.content,
     `Updated reference\n${imageMarkdown("reference", "image/png", PNG_DATA)}\n${imageMarkdown("demo", "image/gif", GIF_DATA)}`,
   );
+  assert.equal(listRootsCalls, 1);
+});
+
+test("MCP project scope falls back to the server working directory", async (t) => {
+  const tempRoot = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "mydevnotes-mcp-cwd-test-")),
+  );
+  const tempHome = path.join(tempRoot, "home");
+  const workspace = path.join(tempRoot, "workspace");
+  const dataDir = path.join(tempHome, ".mydevnotes");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(
+    path.join(dataDir, "data.json"),
+    JSON.stringify({
+      [workspace]: {
+        todos: [
+          {
+            id: "cwd-todo",
+            text: "Resolved from cwd",
+            done: false,
+            createdAt: 1,
+            groupId: "",
+            sortOrder: 0,
+          },
+        ],
+        groups: [],
+        notes: [],
+        schemaVersion: 3,
+      },
+    }),
+  );
+
+  const client = new Client({ name: "mydevnotes-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.resolve(__dirname, "..", "mcp-server.js")],
+    cwd: workspace,
+    env: { ...process.env, HOME: tempHome, USERPROFILE: tempHome },
+    stderr: "inherit",
+  });
+  t.after(async () => {
+    await client.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+  await client.connect(transport);
+
+  const result = await client.callTool({
+    name: "list_todos",
+    arguments: { scope: "project" },
+  });
+  assert.match(resultText(result), /Resolved from cwd/);
+});
+
+test("concurrent mutations survive initial workspace roots resolution", async (t) => {
+  const tempRoot = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "mydevnotes-mcp-concurrent-test-")),
+  );
+  const tempHome = path.join(tempRoot, "home");
+  const workspace = path.join(tempRoot, "workspace");
+  const dataDir = path.join(tempHome, ".mydevnotes");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.writeFileSync(
+    path.join(dataDir, "data.json"),
+    JSON.stringify({
+      [workspace]: { todos: [], groups: [], notes: [], schemaVersion: 3 },
+    }),
+  );
+
+  const client = new Client(
+    { name: "mydevnotes-test", version: "1.0.0" },
+    { capabilities: { roots: {} } },
+  );
+  client.setRequestHandler(ListRootsRequestSchema, async () => ({
+    roots: [{ uri: pathToFileURL(workspace).href }],
+  }));
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.resolve(__dirname, "..", "mcp-server.js")],
+    cwd: tempRoot,
+    env: { ...process.env, HOME: tempHome, USERPROFILE: tempHome },
+    stderr: "inherit",
+  });
+  t.after(async () => {
+    await client.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+  await client.connect(transport);
+
+  await Promise.all([
+    client.callTool({
+      name: "add_todo",
+      arguments: { items: [{ text: "First concurrent todo" }] },
+    }),
+    client.callTool({
+      name: "add_todo",
+      arguments: { items: [{ text: "Second concurrent todo" }] },
+    }),
+  ]);
+  const result = await client.callTool({
+    name: "list_todos",
+    arguments: { scope: "project" },
+  });
+  assert.match(resultText(result), /First concurrent todo/);
+  assert.match(resultText(result), /Second concurrent todo/);
+});
+
+test("explicit workspace argument takes precedence", async (t) => {
+  const tempRoot = fs.realpathSync(
+    fs.mkdtempSync(path.join(os.tmpdir(), "mydevnotes-mcp-override-test-")),
+  );
+  const tempHome = path.join(tempRoot, "home");
+  const configuredWorkspace = path.join(tempRoot, "configured workspace");
+  const envWorkspace = path.join(tempRoot, "env-workspace");
+  const advertisedWorkspace = path.join(tempRoot, "advertised-workspace");
+  const dataDir = path.join(tempHome, ".mydevnotes");
+  fs.mkdirSync(dataDir, { recursive: true });
+  for (const workspace of [
+    configuredWorkspace,
+    envWorkspace,
+    advertisedWorkspace,
+  ]) {
+    fs.mkdirSync(workspace, { recursive: true });
+  }
+  const stateFor = (id, text) => ({
+    todos: [
+      {
+        id,
+        text,
+        done: false,
+        createdAt: 1,
+        groupId: "",
+        sortOrder: 0,
+      },
+    ],
+    groups: [],
+    notes: [],
+    schemaVersion: 3,
+  });
+  fs.writeFileSync(
+    path.join(dataDir, "data.json"),
+    JSON.stringify({
+      [configuredWorkspace]: stateFor(
+        "configured",
+        "Configured workspace todo",
+      ),
+      [envWorkspace]: stateFor("env", "Environment workspace todo"),
+      [advertisedWorkspace]: stateFor("root", "Advertised workspace todo"),
+    }),
+  );
+
+  const client = new Client(
+    { name: "mydevnotes-test", version: "1.0.0" },
+    { capabilities: { roots: {} } },
+  );
+  let listRootsCalls = 0;
+  client.setRequestHandler(ListRootsRequestSchema, async () => {
+    listRootsCalls += 1;
+    return { roots: [{ uri: pathToFileURL(advertisedWorkspace).href }] };
+  });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [
+      path.resolve(__dirname, "..", "mcp-server.js"),
+      `--workspace=${configuredWorkspace}`,
+    ],
+    cwd: tempRoot,
+    env: {
+      ...process.env,
+      HOME: tempHome,
+      USERPROFILE: tempHome,
+      MYDEVNOTES_WORKSPACE: envWorkspace,
+    },
+    stderr: "inherit",
+  });
+  t.after(async () => {
+    await client.close();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+  await client.connect(transport);
+
+  const result = await client.callTool({
+    name: "list_todos",
+    arguments: { scope: "project" },
+  });
+  const text = resultText(result);
+  assert.match(text, /Configured workspace todo/);
+  assert.doesNotMatch(
+    text,
+    /Environment workspace todo|Advertised workspace todo/,
+  );
+  assert.equal(listRootsCalls, 0);
 });

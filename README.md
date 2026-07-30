@@ -61,7 +61,23 @@ The extension can auto-register its MCP server with Claude Code. On first activa
 
 To register manually, add the above to your `~/.claude.json` (updating the path to point to the installed extension's `out/mcp-server.js`).
 
-The MCP server uses `process.cwd()` to determine which workspace's data to read/write, so it works automatically when Claude Code sets the working directory to your project root.
+For project-scoped data, the MCP server uses an explicit `--workspace` argument or `MYDEVNOTES_WORKSPACE` environment variable when provided, then a workspace root advertised by the MCP client, and finally `process.cwd()` for clients that do not support roots. With multiple roots, the root containing `process.cwd()` is used; otherwise configure an explicit workspace. The resolved workspace is cached for the MCP connection, so reconnect after changing roots.
+
+Place `--workspace` after the server script in a manual configuration:
+
+```json
+{
+  "mcpServers": {
+    "mydevnotes": {
+      "command": "node",
+      "args": [
+        "/path/to/extension/out/mcp-server.js",
+        "--workspace=/path/to/project"
+      ]
+    }
+  }
+}
+```
 
 You can control auto-registration via the `mydevnotes.mcpAutoRegister` setting (see Configuration below).
 
@@ -97,7 +113,7 @@ You can control auto-registration via the `mydevnotes.mcpAutoRegister` setting (
 | `edit_note`   | Edit note content              |
 | `delete_note` | Delete a note                  |
 
-Most MCP tools accept an optional `scope` parameter: `"project"` (default, keyed by `process.cwd()`) or `"global"` (shared everywhere). `set_current_task` and `get_current_task` are project-only.
+Most MCP tools accept an optional `scope` parameter: `"project"` (default, keyed by the resolved workspace path) or `"global"` (shared everywhere). `set_current_task` and `get_current_task` are project-only.
 
 Embedded images are returned as MCP image content by `list_todos`, `list_completed_todos`, `get_current_task`, and `list_notes`. Their inline data URLs are replaced with compact `attachment:img-N` Markdown references in the text response.
 

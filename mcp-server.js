@@ -2,7 +2,7 @@
 /**
  * MCP Server for My Dev Notes VS Code Extension
  * Uses the official @modelcontextprotocol/sdk.
- * Reads/writes ~/.mydevnotes/data.json, keyed by workspace path (process.cwd())
+ * Reads/writes ~/.mydevnotes/data.json, keyed by the client's workspace root
  * or the reserved global scope key.
  */
 
@@ -14,12 +14,38 @@ const { z } = require("zod");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { fileURLToPath } = require("url");
 
 const { version } = require("./package.json");
 
 const GLOBAL_DIR = path.join(os.homedir(), ".mydevnotes");
 const GLOBAL_FILE = path.join(GLOBAL_DIR, "data.json");
-const WORKSPACE_KEY = process.cwd();
+const workspaceArg = process.argv.find(
+  (arg) => arg === "--workspace" || arg.startsWith("--workspace="),
+);
+const workspaceArgIndex = process.argv.indexOf("--workspace");
+const configuredWorkspace = workspaceArg?.startsWith("--workspace=")
+  ? workspaceArg.slice("--workspace=".length)
+  : workspaceArgIndex >= 0
+    ? process.argv[workspaceArgIndex + 1]
+    : undefined;
+if (
+  workspaceArg &&
+  (!configuredWorkspace || configuredWorkspace.startsWith("--"))
+) {
+  process.stderr.write(
+    "MCP server error: --workspace requires a directory path.\n",
+  );
+  process.exit(1);
+}
+const cwdWorkspace = path.resolve(process.cwd());
+let workspaceKey = path.resolve(
+  configuredWorkspace || process.env.MYDEVNOTES_WORKSPACE || cwdWorkspace,
+);
+let workspaceKeyResolved = Boolean(
+  configuredWorkspace || process.env.MYDEVNOTES_WORKSPACE,
+);
+let workspaceKeyPromise;
 const GLOBAL_SCOPE_KEY = "::global::";
 const SCHEMA_VERSION = 3;
 const TAG_RE = /#([\p{L}\d_-]+)/gu;
@@ -40,8 +66,76 @@ function emptyState() {
   return { todos: [], groups: [], notes: [], schemaVersion: SCHEMA_VERSION };
 }
 
+async function resolveWorkspaceKey() {
+  if (workspaceKeyResolved) {
+    return workspaceKey;
+  }
+  if (!workspaceKeyPromise) {
+    workspaceKeyPromise = (async () => {
+      let roots = [];
+      try {
+        if (server.server.getClientCapabilities()?.roots) {
+          ({ roots } = await server.server.listRoots(undefined, {
+            timeout: 2000,
+          }));
+        }
+      } catch (error) {
+        process.stderr.write(
+          `My Dev Notes: unable to list MCP roots; using process.cwd(): ${error.message}\n`,
+        );
+      }
+
+      const fileRoots = roots.flatMap((root) => {
+        try {
+          const url = new URL(root.uri);
+          return url.protocol === "file:"
+            ? [path.resolve(fileURLToPath(url))]
+            : [];
+        } catch {
+          return [];
+        }
+      });
+      if (
+        server.server.getClientCapabilities()?.roots &&
+        fileRoots.length === 0
+      ) {
+        process.stderr.write(
+          "My Dev Notes: MCP client returned no file workspace roots; using process.cwd().\n",
+        );
+      }
+      if (fileRoots.length > 1) {
+        const cwdRoot = fileRoots.find(
+          (root) =>
+            cwdWorkspace === root ||
+            cwdWorkspace.startsWith(`${root}${path.sep}`),
+        );
+        if (!cwdRoot) {
+          throw new Error(
+            "Multiple MCP workspace roots are available and none contains process.cwd(). Configure --workspace or MYDEVNOTES_WORKSPACE for project-scoped tools.",
+          );
+        }
+        workspaceKey = cwdRoot;
+      } else if (fileRoots.length === 1) {
+        workspaceKey = fileRoots[0];
+      }
+      workspaceKeyResolved = true;
+      return workspaceKey;
+    })();
+  }
+  return workspaceKeyPromise;
+}
+
+async function prepareScope(scope = "project") {
+  if (scope !== "global") {
+    await resolveWorkspaceKey();
+  }
+}
+
 function stateKey(scope = "project") {
-  return scope === "global" ? GLOBAL_SCOPE_KEY : WORKSPACE_KEY;
+  if (scope !== "global" && !workspaceKeyResolved) {
+    throw new Error("Project workspace has not been resolved.");
+  }
+  return scope === "global" ? GLOBAL_SCOPE_KEY : workspaceKey;
 }
 
 function isAppState(value) {
@@ -74,11 +168,12 @@ function migrateState(state, scope = "project") {
 }
 
 function readState(scope = "project") {
+  const storageKey = stateKey(scope);
   try {
     if (fs.existsSync(GLOBAL_FILE)) {
       const data = fs.readFileSync(GLOBAL_FILE, "utf-8");
       const globalData = JSON.parse(data);
-      const state = globalData[stateKey(scope)];
+      const state = globalData[storageKey];
       if (isAppState(state)) {
         return migrateState(state, scope);
       }
@@ -90,6 +185,7 @@ function readState(scope = "project") {
 }
 
 function writeState(state, scope = "project") {
+  const storageKey = stateKey(scope);
   if (!fs.existsSync(GLOBAL_DIR)) {
     fs.mkdirSync(GLOBAL_DIR, { recursive: true });
   }
@@ -101,7 +197,7 @@ function writeState(state, scope = "project") {
   } catch {
     globalData = {};
   }
-  globalData[stateKey(scope)] = migrateState(state, scope);
+  globalData[storageKey] = migrateState(state, scope);
   const tempFile = `${GLOBAL_FILE}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tempFile, JSON.stringify(globalData, null, 2), "utf-8");
   fs.renameSync(tempFile, GLOBAL_FILE);
@@ -355,6 +451,7 @@ server.tool(
       .describe("Include snoozed TODOs. Defaults to false."),
   },
   async ({ scope = "project", group_name, tag, include_snoozed = false }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const now = Date.now();
     let todos = state.todos.filter(
@@ -398,6 +495,7 @@ server.tool(
     group_name: z.string().optional().describe("Filter by group name"),
   },
   async ({ scope = "project", group_name }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     let todos = state.todos.filter((t) => t.done);
     if (group_name) {
@@ -447,6 +545,7 @@ server.tool(
       .describe("TODOs to add"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -487,6 +586,7 @@ server.tool(
     items: z.array(todoRef).min(1).describe("TODOs to complete"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -521,6 +621,7 @@ server.tool(
     items: z.array(todoRef).min(1).describe("TODOs to restore"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -560,6 +661,7 @@ server.tool(
     items: z.array(todoRef).min(1).describe("TODOs to delete"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -594,6 +696,7 @@ server.tool(
       .describe("TODOs to edit"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -629,6 +732,7 @@ server.tool(
       .describe("TODOs to move"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -684,6 +788,7 @@ server.tool(
     if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
       return textResponse(`Invalid snooze time: ${until}`, true);
     }
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -719,6 +824,7 @@ server.tool(
     items: z.array(todoRef).min(1).describe("TODOs to wake"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -753,6 +859,7 @@ server.tool(
   "Set or clear the user's current My Dev Notes task. Project scope only.",
   { id: z.string().nullable().describe("TODO id to pin, or null to clear") },
   async ({ id }) => {
+    await prepareScope("project");
     const state = readState("project");
     if (!id) {
       state.currentTaskId = undefined;
@@ -782,6 +889,7 @@ server.tool(
   "Get the user's current My Dev Notes task for this project.",
   {},
   async () => {
+    await prepareScope("project");
     const state = readState("project");
     const todo = state.currentTaskId
       ? state.todos.find((t) => t.id === state.currentTaskId && !t.done)
@@ -803,6 +911,7 @@ server.tool(
   "List the groups organizing the user's stored My Dev Notes TODOs/tasks.",
   { scope: scopeSchema },
   async ({ scope = "project" }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const groups = state.groups.sort((a, b) => a.sortOrder - b.sortOrder);
     if (groups.length === 0) {
@@ -825,6 +934,7 @@ server.tool(
   "Create a group for organizing the user's stored My Dev Notes TODOs/tasks.",
   { scope: scopeSchema, name: z.string().describe("Group name") },
   async ({ scope = "project", name }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const exists = state.groups.find(
       (g) => g.name.toLowerCase() === name.toLowerCase(),
@@ -852,6 +962,7 @@ server.tool(
     new_name: z.string().describe("New group name"),
   },
   async ({ scope = "project", old_name, new_name }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const group = state.groups.find(
       (g) => g.name.toLowerCase() === old_name.toLowerCase(),
@@ -877,6 +988,7 @@ server.tool(
   "Delete a My Dev Notes TODO/task group; its TODOs are moved to ungrouped.",
   { scope: scopeSchema, name: z.string().describe("Group name to delete") },
   async ({ scope = "project", name }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const group = state.groups.find(
       (g) => g.name.toLowerCase() === name.toLowerCase(),
@@ -916,6 +1028,7 @@ server.tool(
   "List the user's notes/scratch notes stored in My Dev Notes, with a preview of each note.",
   { scope: scopeSchema },
   async ({ scope = "project" }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const notes = (state.notes || []).sort((a, b) => a.sortOrder - b.sortOrder);
     if (notes.length === 0) {
@@ -954,6 +1067,7 @@ server.tool(
   },
   async ({ scope = "project", content }) => {
     const normalized = normalizeNewlines(content);
+    await prepareScope(scope);
     const state = readState(scope);
     const newNote = {
       id: generateId(),
@@ -987,6 +1101,7 @@ server.tool(
       .describe("Notes to edit"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
@@ -1021,6 +1136,7 @@ server.tool(
     items: z.array(noteRef).min(1).describe("Notes to delete"),
   },
   async ({ scope = "project", items }) => {
+    await prepareScope(scope);
     const state = readState(scope);
     const results = [];
     for (const item of items) {
