@@ -25,6 +25,16 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
 }
 
+function nextTodoSortOrder(todos: TodoItem[], groupId: string): number {
+  return (
+    todos
+      .filter(
+        (todo) => todo.groupId === groupId && !todo.done && !todo.snoozedUntil,
+      )
+      .reduce((max, todo) => Math.max(max, todo.sortOrder), -1) + 1
+  );
+}
+
 function emptyState(): AppState {
   return {
     todos: [],
@@ -326,16 +336,13 @@ export class StorageService {
 
   addTodo(scope: Scope, text: string, groupId: string): void {
     const state = this.getState(scope);
-    const todosInGroup = state.todos.filter(
-      (t) => t.groupId === groupId && !t.done && !t.snoozedUntil,
-    );
     const newTodo: TodoItem = {
       id: generateId(),
       text,
       done: false,
       createdAt: Date.now(),
       groupId,
-      sortOrder: todosInGroup.length,
+      sortOrder: nextTodoSortOrder(state.todos, groupId),
     };
     state.todos.push(newTodo);
     this.setState(scope, state);
@@ -582,7 +589,7 @@ export class StorageService {
 
   // ---- Note operations ----
 
-  addNote(scope: Scope, content: string): void {
+  addNote(scope: Scope, content: string): NoteItem {
     const state = this.getState(scope);
     const newNote: NoteItem = {
       id: generateId(),
@@ -593,6 +600,7 @@ export class StorageService {
     };
     state.notes.push(newNote);
     this.setState(scope, state);
+    return newNote;
   }
 
   editNote(scope: Scope, id: string, content: string): void {

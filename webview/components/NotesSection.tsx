@@ -6,31 +6,23 @@ import { useState } from "preact/hooks";
 
 interface NotesSectionProps {
   notes: NoteItemType[];
+  createdNoteIds: string[];
   onAdd: (content: string) => void;
+  onCreatedNoteOpened: (id: string) => void;
   onEdit: (id: string, content: string) => void;
   onDelete: (id: string) => void;
 }
 
 export function NotesSection({
   notes,
+  createdNoteIds,
   onAdd,
+  onCreatedNoteOpened,
   onEdit,
   onDelete,
 }: NotesSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [newNoteId, setNewNoteId] = useState<string | null>(null);
-
-  const handleAddNote = () => {
-    onAdd("");
-    setNewNoteId("pending");
-  };
-
   const sorted = [...notes].sort((a, b) => a.sortOrder - b.sortOrder);
-  let latestNoteId: string | null = null;
-  if (newNoteId === "pending" && sorted.length > 0) {
-    latestNoteId = sorted[sorted.length - 1].id;
-    setTimeout(() => setNewNoteId(null), 0);
-  }
 
   return (
     <section class="workspace-section notes-section">
@@ -52,12 +44,13 @@ export function NotesSection({
             <NoteItem
               key={note.id}
               note={note}
-              startInEditMode={note.id === latestNoteId}
+              openEditor={createdNoteIds.includes(note.id)}
+              onEditorOpened={onCreatedNoteOpened}
               onEdit={onEdit}
               onDelete={onDelete}
             />
           ))}
-          <QuickAction label="New note" icon="note" onClick={handleAddNote} />
+          <QuickAction label="New note" icon="note" onClick={() => onAdd("")} />
         </div>
       )}
     </section>

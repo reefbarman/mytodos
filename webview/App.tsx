@@ -53,12 +53,26 @@ function App() {
   const [state, setState] = useState<WebviewState | null>(null);
   const [todosCollapsed, setTodosCollapsed] = useState(false);
   const [filter, setFilter] = useState("");
+  const [createdNotes, setCreatedNotes] = useState<
+    Array<{ id: string; scope: Scope }>
+  >([]);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const message = event.data;
-      if (message.type === "stateUpdate") setState(message.state);
+      if (message.type === "stateUpdate") {
+        setState(message.state);
+        setCreatedNotes((notes) =>
+          notes.filter((note) => note.scope === message.state.scope),
+        );
+      }
+      if (message.type === "noteCreated") {
+        setCreatedNotes((notes) => [
+          ...notes,
+          { id: message.id, scope: message.scope },
+        ]);
+      }
       if (message.type === "focusSearch") searchRef.current?.focus();
       if (message.type === "focusAddInput") {
         setTodosCollapsed(false);
@@ -82,8 +96,12 @@ function App() {
   const filteredTodos = state.activeTodos.filter((todo) =>
     todoMatches(todo, query),
   );
-  const filteredNotes = state.notes.filter((note) =>
-    noteMatches(note.content, query),
+  const createdNoteIds = createdNotes
+    .filter((note) => note.scope === scope)
+    .map((note) => note.id);
+  const filteredNotes = state.notes.filter(
+    (note) =>
+      createdNoteIds.includes(note.id) || noteMatches(note.content, query),
   );
   const visibleGroups = groups.filter(
     (group) =>
@@ -273,7 +291,13 @@ function App() {
 
         <NotesSection
           notes={filteredNotes}
+          createdNoteIds={createdNoteIds}
           onAdd={(content) => scopedPost(scope, { type: "addNote", content })}
+          onCreatedNoteOpened={(id) =>
+            setCreatedNotes((notes) =>
+              notes.filter((note) => note.id !== id || note.scope !== scope),
+            )
+          }
           onEdit={(id, content) =>
             scopedPost(scope, { type: "editNote", id, content })
           }

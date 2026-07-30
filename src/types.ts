@@ -67,6 +67,7 @@ export type WebviewToExtensionMessage =
 // Messages: extension host → webview
 export type ExtensionToWebviewMessage =
   | { type: "stateUpdate"; state: WebviewState }
+  | { type: "noteCreated"; id: string; scope: Scope }
   | { type: "focusAddInput" }
   | { type: "focusSearch" };
 

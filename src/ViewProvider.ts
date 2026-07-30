@@ -146,10 +146,16 @@ export class ViewProvider implements vscode.WebviewViewProvider {
         this.storage.restoreTodo(message.scope, message.id);
         this.onStateChanged();
         break;
-      case "addNote":
-        this.storage.addNote(message.scope, message.content);
+      case "addNote": {
+        const note = this.storage.addNote(message.scope, message.content);
+        this.postMessageToWebview({
+          type: "noteCreated",
+          id: note.id,
+          scope: message.scope,
+        });
         this.onStateChanged();
         break;
+      }
       case "editNote":
         this.storage.editNote(message.scope, message.id, message.content);
         this.onStateChanged();

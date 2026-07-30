@@ -99,6 +99,8 @@ You can control auto-registration via the `mydevnotes.mcpAutoRegister` setting (
 
 Most MCP tools accept an optional `scope` parameter: `"project"` (default, keyed by `process.cwd()`) or `"global"` (shared everywhere). `set_current_task` and `get_current_task` are project-only.
 
+Embedded images are returned as MCP image content by `list_todos`, `list_completed_todos`, `get_current_task`, and `list_notes`. Their inline data URLs are replaced with compact `attachment:img-N` Markdown references in the text response.
+
 ## Configuration
 
 | Setting                      | Description                                             | Default |

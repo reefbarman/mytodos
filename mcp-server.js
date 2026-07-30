@@ -23,6 +23,9 @@ const WORKSPACE_KEY = process.cwd();
 const GLOBAL_SCOPE_KEY = "::global::";
 const SCHEMA_VERSION = 3;
 const TAG_RE = /#([\p{L}\d_-]+)/gu;
+const DATA_IMAGE_MARKDOWN_RE =
+  /!\[([^\]]*)\]\(data:(image\/(?:png|jpe?g|gif|webp|bmp));base64,([A-Za-z\d+/]+={0,2})\)/gi;
+const ATTACHMENT_MARKDOWN_RE = /!\[([^\]]*)\]\(attachment:(img-\d+)\)/gi;
 
 const scopeSchema = z
   .enum(["project", "global"])
@@ -156,6 +159,65 @@ function renumberGroup(state, groupId) {
     });
 }
 
+function nextTodoSortOrder(todos, groupId) {
+  return (
+    todos
+      .filter(
+        (todo) => todo.groupId === groupId && !todo.done && !todo.snoozedUntil,
+      )
+      .reduce((max, todo) => Math.max(max, todo.sortOrder), -1) + 1
+  );
+}
+
+function isValidBase64(data) {
+  if (data.length % 4 === 1) return false;
+  const normalized = data.replace(/=+$/, "");
+  return (
+    Buffer.from(data, "base64").toString("base64").replace(/=+$/, "") ===
+    normalized
+  );
+}
+
+function extractMarkdownImages(markdown, attachments, source = {}) {
+  let imageIndex = 0;
+  return markdown.replace(
+    DATA_IMAGE_MARKDOWN_RE,
+    (_match, alt, mimeType, data) => {
+      if (!isValidBase64(data)) {
+        return alt
+          ? `[invalid embedded image: ${alt}]`
+          : "[invalid embedded image]";
+      }
+      const id = `img-${++imageIndex}`;
+      attachments.push({
+        id,
+        alt,
+        mimeType:
+          mimeType.toLowerCase() === "image/jpg"
+            ? "image/jpeg"
+            : mimeType.toLowerCase(),
+        data,
+        ...source,
+      });
+      return `![${alt}](attachment:${id})`;
+    },
+  );
+}
+
+function restoreMarkdownImages(markdown, existingMarkdown) {
+  const attachments = [];
+  extractMarkdownImages(existingMarkdown, attachments);
+  const attachmentsById = new Map(
+    attachments.map((attachment) => [attachment.id, attachment]),
+  );
+  return markdown.replace(ATTACHMENT_MARKDOWN_RE, (match, alt, id) => {
+    const attachment = attachmentsById.get(id.toLowerCase());
+    return attachment
+      ? `![${alt}](data:${attachment.mimeType};base64,${attachment.data})`
+      : match;
+  });
+}
+
 function formatTodos(
   todos,
   groups,
@@ -202,11 +264,64 @@ function formatTodos(
   return lines.join("\n");
 }
 
-function textResponse(text, isError = false) {
+function contentResponse(text, attachments = [], isError = false) {
+  const content = [{ type: "text", text }];
+  for (const attachment of attachments) {
+    const source = attachment.sourceType
+      ? ` from ${attachment.sourceType} ${attachment.sourceId}`
+      : "";
+    const alt = attachment.alt ? ` (alt: "${attachment.alt}")` : "";
+    content.push({
+      type: "text",
+      text: `Attachment ${attachment.id}${source}${alt}:`,
+    });
+    content.push({
+      type: "image",
+      data: attachment.data,
+      mimeType: attachment.mimeType,
+      _meta: {
+        "mydevnotes/attachmentId": attachment.id,
+        ...(attachment.sourceType
+          ? {
+              "mydevnotes/sourceType": attachment.sourceType,
+              "mydevnotes/sourceId": attachment.sourceId,
+            }
+          : {}),
+        ...(attachment.alt ? { "mydevnotes/alt": attachment.alt } : {}),
+      },
+    });
+  }
   return {
-    content: [{ type: "text", text }],
+    content,
     ...(isError ? { isError: true } : {}),
   };
+}
+
+function textResponse(text, isError = false) {
+  return contentResponse(extractMarkdownImages(text, []), [], isError);
+}
+
+function todosResponse(todos, groups, options = {}, prefix = "") {
+  const attachments = [];
+  const safeTodos = todos.map((todo) => ({
+    ...todo,
+    text: extractMarkdownImages(todo.text, attachments, {
+      sourceType: "todo",
+      sourceId: todo.id,
+    }),
+  }));
+  const formatted = formatTodos(safeTodos, groups, options);
+  const text = prefix ? `${prefix}\n${formatted}` : formatted;
+  return contentResponse(text, attachments);
+}
+
+function todoResponse(todo, formatText) {
+  const attachments = [];
+  const safeText = extractMarkdownImages(todo.text, attachments, {
+    sourceType: "todo",
+    sourceId: todo.id,
+  });
+  return contentResponse(formatText(safeText), attachments);
 }
 
 // ---- Server setup ----
@@ -252,8 +367,11 @@ server.tool(
         (g) => g.name.toLowerCase() === group_name.toLowerCase(),
       );
       if (!group) {
-        return textResponse(
-          `No group found with name "${group_name}". Active TODOs:\n${formatTodos(todos, state.groups, { currentTaskId: state.currentTaskId })}`,
+        return todosResponse(
+          todos,
+          state.groups,
+          { currentTaskId: state.currentTaskId },
+          `No group found with name "${group_name}". Active TODOs:`,
         );
       }
       todos = todos.filter((t) => t.groupId === group.id);
@@ -266,9 +384,9 @@ server.tool(
     if (todos.length === 0) {
       return textResponse(`No active TODOs in ${scope} scope.`);
     }
-    return textResponse(
-      formatTodos(todos, state.groups, { currentTaskId: state.currentTaskId }),
-    );
+    return todosResponse(todos, state.groups, {
+      currentTaskId: state.currentTaskId,
+    });
   },
 );
 
@@ -295,9 +413,7 @@ server.tool(
     if (todos.length === 0) {
       return textResponse(`No completed TODOs in ${scope} scope.`);
     }
-    return textResponse(
-      formatTodos(todos, state.groups, { inlineGroup: true }),
-    );
+    return todosResponse(todos, state.groups, { inlineGroup: true });
   },
 );
 
@@ -345,16 +461,13 @@ server.tool(
         }
         groupId = group.id;
       }
-      const todosInGroup = state.todos.filter(
-        (t) => t.groupId === groupId && !t.done && !t.snoozedUntil,
-      );
       state.todos.push({
         id: generateId(),
         text: item.text,
         done: false,
         createdAt: Date.now(),
         groupId,
-        sortOrder: todosInGroup.length,
+        sortOrder: nextTodoSortOrder(state.todos, groupId),
       });
       const name = groupId
         ? state.groups.find((g) => g.id === groupId)?.name
@@ -490,7 +603,7 @@ server.tool(
         continue;
       }
       const oldText = todo.text;
-      todo.text = item.new_text;
+      todo.text = restoreMarkdownImages(item.new_text, oldText);
       results.push(`Edited: "${oldText}" → "${item.new_text}"`);
     }
     writeState(state, scope);
@@ -676,7 +789,10 @@ server.tool(
     if (!todo) {
       return textResponse("No current task set.");
     }
-    return textResponse(`Current task: "${todo.text}" (id: ${todo.id})`);
+    return todoResponse(
+      todo,
+      (text) => `Current task: "${text}" (id: ${todo.id})`,
+    );
   },
 );
 
@@ -805,13 +921,27 @@ server.tool(
     if (notes.length === 0) {
       return textResponse(`No notes in ${scope} scope.`);
     }
+    const attachments = [];
     const lines = notes.map((n) => {
+      const firstAttachment = attachments.length;
+      const safeContent = extractMarkdownImages(n.content, attachments, {
+        sourceType: "note",
+        sourceId: n.id,
+      });
       const preview =
-        n.content.length > 80 ? n.content.substring(0, 80) + "..." : n.content;
+        safeContent.length > 80
+          ? safeContent.substring(0, 80) + "..."
+          : safeContent;
       const oneLine = preview.replace(/\n/g, " ");
-      return `  - ${oneLine} (id: ${n.id})`;
+      const attachmentIds = attachments
+        .slice(firstAttachment)
+        .map((attachment) => attachment.id);
+      const attachmentList = attachmentIds.length
+        ? ` [attachments: ${attachmentIds.join(", ")}]`
+        : "";
+      return `  - ${oneLine}${attachmentList} (id: ${n.id})`;
     });
-    return textResponse(lines.join("\n"));
+    return contentResponse(lines.join("\n"), attachments);
   },
 );
 
@@ -867,7 +997,10 @@ server.tool(
         );
         continue;
       }
-      note.content = normalizeNewlines(item.new_content);
+      note.content = restoreMarkdownImages(
+        normalizeNewlines(item.new_content),
+        note.content,
+      );
       note.updatedAt = Date.now();
       const preview =
         item.new_content.length > 60

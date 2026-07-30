@@ -1,5 +1,5 @@
 import type { NoteItem as NoteItemType } from "../types";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 
 import { stripMarkdownImages } from "../markdown";
 import { MarkdownContent } from "./MarkdownContent";
@@ -9,20 +9,31 @@ import { IconButton } from "./ui/IconButton";
 
 interface NoteItemProps {
   note: NoteItemType;
-  startInEditMode?: boolean;
+  openEditor?: boolean;
+  onEditorOpened?: (id: string) => void;
   onEdit: (id: string, content: string) => void;
   onDelete: (id: string) => void;
 }
 
 export function NoteItem({
   note,
-  startInEditMode,
+  openEditor,
+  onEditorOpened,
   onEdit,
   onDelete,
 }: NoteItemProps) {
-  const [editing, setEditing] = useState(!!startInEditMode);
+  const [editing, setEditing] = useState(!!openEditor);
   const [editContent, setEditContent] = useState(note.content);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!openEditor) return;
+    if (!editing) {
+      setEditContent(note.content);
+      setEditing(true);
+    }
+    onEditorOpened?.(note.id);
+  }, [openEditor, note.id]);
 
   const startEdit = () => {
     setEditContent(note.content);
@@ -78,11 +89,21 @@ export function NoteItem({
 
   return (
     <article class="note-item">
-      <MarkdownContent
-        content={note.content}
-        className="note-content"
-        onDblClick={startEdit}
-      />
+      {note.content.trim() ? (
+        <MarkdownContent
+          content={note.content}
+          className="note-content"
+          onDblClick={startEdit}
+        />
+      ) : (
+        <div
+          class="markdown-content note-content"
+          style={{ color: "var(--mdn-muted)" }}
+          onDblClick={startEdit}
+        >
+          Double-click to edit
+        </div>
+      )}
       <div class="item-actions note-actions">
         <ActionMenu items={menuItems} label="Note actions" />
         <IconButton
